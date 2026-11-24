@@ -13,6 +13,17 @@ public static class JsonFiles
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() },
     };
+
+    /// <summary>
+    /// Renames an unparseable file to <c>&lt;name&gt;.bad</c> (replacing an older one) so the next save
+    /// doesn't destroy it. Best effort; only for JSON parse failures, not transient IO errors.
+    /// </summary>
+    public static void QuarantineCorrupt(string path, Exception cause)
+    {
+        if (cause is not JsonException) return;
+        try { File.Move(path, path + ".bad", overwrite: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
 }
 
 public static class CurvyPaths

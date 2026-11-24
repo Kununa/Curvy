@@ -23,6 +23,7 @@ public sealed class SettingsStore(string dir)
         catch (Exception ex)
         {
             Debug.WriteLine($"Curvy: failed to load settings: {ex.Message}");
+            JsonFiles.QuarantineCorrupt(FilePath, ex);
             return CurvySettings.Default;
         }
     }

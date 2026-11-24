@@ -57,4 +57,32 @@ public sealed class StartupRegistrationTests : IDisposable
         reg.Disable();
         Assert.False(reg.IsEnabled());
     }
+
+    [Fact]
+    public void GetRegisteredExe_ParsesQuotedPath_AndNullWhenAbsent()
+    {
+        var reg = new StartupRegistration(_root);
+        Assert.Null(reg.GetRegisteredExe());
+        reg.Enable(@"C:\Program Files\Curvy\Curvy.exe");
+        Assert.Equal(@"C:\Program Files\Curvy\Curvy.exe", reg.GetRegisteredExe());
+    }
+}
+
+public sealed class StartupRegistrationShouldRefreshTests
+{
+    [Fact]
+    public void NotRegistered_NoRefresh() =>
+        Assert.False(StartupRegistration.ShouldRefresh(null, @"C:\new\Curvy.exe", _ => true));
+
+    [Fact]
+    public void RegisteredExeStillExists_NoRefresh() =>
+        Assert.False(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", _ => true));
+
+    [Fact]
+    public void RegisteredExeMissing_Refresh() =>
+        Assert.True(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", p => p == @"C:\new\Curvy.exe"));
+
+    [Fact]
+    public void RegisteredIsCurrent_NoRefresh() =>
+        Assert.False(StartupRegistration.ShouldRefresh(@"C:\a\Curvy.exe", @"C:\a\Curvy.exe", _ => false));
 }

@@ -97,7 +97,8 @@ public sealed class SettingsPage : Component<SettingsPageProps>
 
         var restoreDialog = ContentDialog("Restore the original config.txt?",
                 Body("config.txt will be replaced by the copy saved before Curvy first changed it. Lines Curvy " +
-                     "turned off become active again.\n\n" +
+                     "turned off become active again. Changes made to config.txt by other apps or by hand " +
+                     "since Curvy's first change will also be undone.\n\n" +
                      "Curvy will stop adding its line to config.txt until you click Reconnect, so your EQ " +
                      "isn't applied until then.").TextWrapping(TextWrapping.Wrap),
                 "Restore") with

@@ -20,6 +20,8 @@ public sealed class ApoConfig(string configDir)
     {
         if (!File.Exists(ConfigTxtPath)) return new RawFile([], false, true);
         var bytes = File.ReadAllBytes(ConfigTxtPath);
+        if (bytes.Length >= 2 && ((bytes[0] == 0xFF && bytes[1] == 0xFE) || (bytes[0] == 0xFE && bytes[1] == 0xFF)))
+            throw new InvalidOperationException("config.txt is UTF-16; Curvy won't modify it.");
         var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
         var body = bom ? bytes.AsSpan(3) : bytes.AsSpan();
         string text;

@@ -1,5 +1,9 @@
 # Working on this app
 
+> **This app is UNPACKAGED** (`WindowsPackageType=None`). Use `dotnet build` / `dotnet run`, not
+> `winapp run` or MSIX packaging. Agents must **not** launch the app or use `winapp ui` / screenshots
+> unless the user explicitly asks, because launching steals window focus.
+
 This is a WinUI 3 app built with
 [Microsoft.UI.Reactor](https://github.com/microsoft/microsoft-ui-reactor) and the
 [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/).

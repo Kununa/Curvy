@@ -25,6 +25,20 @@ public sealed class ApoConfigTests : IDisposable
         try { Directory.Delete(dir, true); } catch { }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EnsureCurvyInclude_RefusesUtf16_AndLeavesBytesUnchanged(bool littleEndian)
+    {
+        var enc = new System.Text.UnicodeEncoding(!littleEndian, byteOrderMark: true);
+        var bytes = enc.GetPreamble().Concat(enc.GetBytes("Include: peace.txt")).ToArray();
+        File.WriteAllBytes(cfg, bytes);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => apo.EnsureCurvyInclude());
+        Assert.Contains("UTF-16", ex.Message);
+        Assert.Equal(bytes, File.ReadAllBytes(cfg));
+    }
+
     [Fact]
     public void EnsureCurvyInclude_AppendsOnce_KeepsOtherLines()
     {

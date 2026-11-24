@@ -366,6 +366,10 @@ public sealed class EngineHost
             {
                 if (lines.Count > 0) e.DisableForeignLines(lines);
             }
+            catch (ConfigChangedException)
+            {
+                _uiError = "config.txt changed while the dialog was open — review the lines in Settings → Equalizer APO.";
+            }
             finally
             {
                 e.SetFirstRunShown(true);
@@ -405,15 +409,22 @@ public sealed class EngineHost
     /// <summary>When enabled, rewrites the Run entry so it follows the exe if Curvy was moved.</summary>
     void RefreshStartupRegistration()
     {
+#if DEBUG
+        // Never let a dev/debug build rewrite the user's autostart entry.
+        return;
+#else
         if (_engine is not { Settings.StartWithWindows: true } || ExePath is not { } exe) return;
         try
         {
-            if (Startup.IsEnabled()) Startup.Enable(exe);
+            // Only repair the entry when the registered exe is gone (moved/reinstalled); a registered
+            // exe that still exists is left alone.
+            if (StartupRegistration.ShouldRefresh(Startup.GetRegisteredExe(), exe, File.Exists)) Startup.Enable(exe);
         }
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
             Debug.WriteLine($"Curvy: couldn't refresh the Run key: {ex}");
         }
+#endif
     }
 
     /// <summary>Stops the config.txt watcher (on Exit).</summary>

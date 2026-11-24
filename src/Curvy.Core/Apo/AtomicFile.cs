@@ -15,7 +15,7 @@ public static class AtomicFile
         try
         {
             File.WriteAllBytes(tmp, bytes);
-            File.Move(tmp, path, overwrite: true);
+            MoveWithRetry(tmp, path, overwrite: true);
         }
         catch
         {
@@ -30,12 +30,30 @@ public static class AtomicFile
         try
         {
             File.Copy(source, tmp, overwrite: true);
-            File.Move(tmp, dest, overwrite);
+            MoveWithRetry(tmp, dest, overwrite);
         }
         catch
         {
             try { File.Delete(tmp); } catch { }
             throw;
+        }
+    }
+
+    /// <summary>The APO service may hold the target open briefly; retry the final replace a few times.</summary>
+    private static void MoveWithRetry(string tmp, string target, bool overwrite)
+    {
+        const int attempts = 3;
+        for (var i = 1; ; i++)
+        {
+            try
+            {
+                File.Move(tmp, target, overwrite);
+                return;
+            }
+            catch (Exception ex) when (i < attempts && ex is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(50);
+            }
         }
     }
 

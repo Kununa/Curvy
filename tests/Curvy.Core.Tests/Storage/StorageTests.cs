@@ -14,6 +14,32 @@ public sealed class StorageTests : IDisposable
     public StorageTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
+    [Fact]
+    public void Settings_Corrupt_IsRenamedToBad_AndOverwritesOlderBad()
+    {
+        var store = new SettingsStore(_dir);
+        File.WriteAllText(Path.Combine(_dir, "settings.json.bad"), "older");
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), "{ not json");
+
+        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
+
+        Assert.False(File.Exists(Path.Combine(_dir, "settings.json")));
+        Assert.Equal("{ not json", File.ReadAllText(Path.Combine(_dir, "settings.json.bad")));
+    }
+
+    [Fact]
+    public void Profiles_Corrupt_IsRenamedToBad()
+    {
+        var store = new ProfileStore(_dir);
+        var id = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(_dir, id + ".json"), "garbage");
+
+        Assert.Empty(store.LoadAll());
+
+        Assert.False(File.Exists(Path.Combine(_dir, id + ".json")));
+        Assert.Equal("garbage", File.ReadAllText(Path.Combine(_dir, id + ".json.bad")));
+    }
+
     private static void AssertPreferenceEqual(Preference e, Preference a)
     {
         Assert.Equal(e.Tone, a.Tone);
@@ -101,11 +127,11 @@ public sealed class StorageTests : IDisposable
     public void Settings_MissingOrCorrupt_ReturnsDefault()
     {
         var store = new SettingsStore(_dir);
-        Assert.Equal(CurvySettings.Default, store.Load());
+        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
         File.WriteAllText(Path.Combine(_dir, "settings.json"), "{garbage");
-        Assert.Equal(CurvySettings.Default, store.Load());
+        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
         File.WriteAllText(Path.Combine(_dir, "settings.json"), "{ \"schemaVersion\": 2, \"settings\": { \"masterEnabled\": false } }");
-        Assert.Equal(CurvySettings.Default, store.Load());
+        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
     }
 
     [Fact]

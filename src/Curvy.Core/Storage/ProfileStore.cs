@@ -32,6 +32,7 @@ public sealed class ProfileStore(string dir)
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Curvy: skipping profile file {file}: {ex.Message}");
+                    JsonFiles.QuarantineCorrupt(file, ex);
                 }
             }
         }
