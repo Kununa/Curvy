@@ -24,6 +24,10 @@ namespace Curvy.App.Services;
 /// <param name="FirstRunLines">
 /// Non-null while the first-run dialog should be shown: the active EQ-like foreign lines found at startup.
 /// </param>
+/// <param name="IncludeRemovedRepeatedly">
+/// Another app kept removing Curvy's include and automatic repair stopped (see <see cref="RepairGuard"/>);
+/// the user can add it back once.
+/// </param>
 /// <param name="Version">Increases with every published snapshot (e.g. to re-read config.txt).</param>
 public sealed record EngineState(
     bool ApoAvailable,
@@ -38,6 +42,7 @@ public sealed record EngineState(
     string? UiError,
     IReadOnlyList<ConfigLine> ReEnabledLines,
     IReadOnlyList<ConfigLine>? FirstRunLines,
+    bool IncludeRemovedRepeatedly,
     long Version);
 
 /// <summary>
@@ -69,6 +74,8 @@ public sealed class EngineHost
     FileSystemWatcher? _configWatcher;
     IReadOnlyList<ConfigLine> _reEnabled = [];
     IReadOnlyList<ConfigLine>? _firstRunLines;
+    readonly RepairGuard _repairGuard = new(TimeProvider.System);
+    bool _includeLoop;
     long _version;
     AutoEqClient? _autoEq;
     AutoEqIndexLoader? _autoEqIndex;
@@ -101,13 +108,10 @@ public sealed class EngineHost
                     new SettingsStore(CurvyPaths.Root),
                     apo);
                 _engine.Changed += OnEngineChanged;
-                // Startup: make sure config.txt includes us and curvy.txt reflects the saved state.
+                // Startup: make sure config.txt includes us and curvy.txt reflects the saved state
+                // (while paused after a restore, only curvy.txt is written).
                 _engine.Apply();
-                // Then look at the other lines: re-enabled ones (warning) and, once, the first-run dialog.
-                var health = _engine.CheckAndRepair();
-                _reEnabled = health.ReEnabledLines;
-                if (!_engine.Settings.FirstRunShown && health.ActiveEqLikeForeignLines.Count > 0)
-                    _firstRunLines = health.ActiveEqLikeForeignLines;
+                RunStartupChecks();
                 RefreshStartupRegistration();
                 StartWatcher(apo.ConfigTxtPath);
             }
@@ -248,28 +252,99 @@ public sealed class EngineHost
     }
 
     /// <summary>
-    /// Debounced watcher callback (UI thread): re-adds Curvy's include if it was removed and reports
-    /// lines Curvy had disabled that another app re-enabled. Never disables anything itself.
+    /// Startup (and Reconnect): re-enabled lines (warning) and, until shown once, the first-run
+    /// dialog. Reports nothing while the integration is paused.
+    /// </summary>
+    void RunStartupChecks()
+    {
+        if (_engine is null) return;
+        var health = _engine.CheckAndRepair();
+        _reEnabled = health.ReEnabledLines;
+        _includeLoop = false;
+        _firstRunLines = !_engine.Settings.FirstRunShown && health.ActiveEqLikeForeignLines.Count > 0
+            ? health.ActiveEqLikeForeignLines
+            : null;
+    }
+
+    /// <summary>
+    /// Debounced watcher callback (UI thread): re-adds Curvy's include if it was removed — at most
+    /// <see cref="RepairGuard.MaxRepairs"/> times a minute, then it stops and asks the user — and
+    /// reports lines Curvy had disabled that another app re-enabled. Never disables anything itself.
     /// </summary>
     void CheckConfig()
     {
         if (_engine is null || _configWatcher is null) return; // not started, or shut down
         Run(() =>
         {
-            var health = _engine.CheckAndRepair();
+            var health = _engine.CheckAndRepair(_repairGuard.TryAcquire);
             _reEnabled = health.ReEnabledLines;
+            _includeLoop = health.IncludeMissing;
             Publish(); // also refreshes pages that show config.txt
         });
     }
 
-    /// <summary>"Disable again" on the re-enabled warning: disables those lines (re-read, so indices are fresh).</summary>
-    public void DisableReEnabledLines() => Now(e =>
+    /// <summary>"Add it back" on the include-loop warning: one manual repair; automatic repair resumes.</summary>
+    public void AddIncludeBack()
     {
-        var health = e.CheckAndRepair();
-        _reEnabled = [];
-        if (health.ReEnabledLines.Count > 0) e.DisableForeignLines(health.ReEnabledLines.Select(l => l.Index));
+        _repairGuard.Reset();
+        _includeLoop = false;
+        Now(e =>
+        {
+            var health = e.CheckAndRepair();
+            _reEnabled = health.ReEnabledLines;
+        });
         Publish();
-    });
+    }
+
+    /// <summary>"Disable again" on the re-enabled warning: disables those lines as they are on disk now.</summary>
+    public void DisableReEnabledLines()
+    {
+        _reEnabled = [];
+        Now(e =>
+        {
+            var lines = e.FindReEnabledLines();
+            if (lines.Count > 0) e.DisableForeignLines(lines);
+        });
+        Publish();
+    }
+
+    /// <summary>"Keep it on" on the re-enabled warning: stop tracking those lines (they stay active).</summary>
+    public void KeepReEnabledLines()
+    {
+        _reEnabled = [];
+        Now(e =>
+        {
+            foreach (var line in e.FindReEnabledLines()) e.EnableForeignLine(line.Index, line.Text);
+        });
+        Publish();
+    }
+
+    /// <summary>
+    /// "Restore original config.txt": restores the backup and pauses the integration. Returns
+    /// true/false (restored / no backup), or null when it failed (the error bar shows why).
+    /// </summary>
+    public bool? RestoreOriginalConfig()
+    {
+        bool? restored = null;
+        _reEnabled = [];
+        _includeLoop = false;
+        _firstRunLines = null;
+        Now(e => restored = e.RestoreOriginalConfig());
+        Publish();
+        return restored;
+    }
+
+    /// <summary>"Reconnect": re-adds Curvy's include and runs the startup checks (incl. first run) again.</summary>
+    public void Reconnect()
+    {
+        _repairGuard.Reset();
+        Now(e =>
+        {
+            e.ResumeIntegration();
+            RunStartupChecks();
+        });
+        Publish();
+    }
 
     public void DismissReEnabledLines()
     {
@@ -279,17 +354,17 @@ public sealed class EngineHost
     }
 
     /// <summary>
-    /// Closes the first-run dialog: disables the lines at <paramref name="disableIndices"/> (may be
-    /// empty) and records that the dialog was shown, even if disabling failed.
+    /// Closes the first-run dialog: disables <paramref name="lines"/> (may be empty; checked against
+    /// config.txt as it is now) and records that the dialog was shown, even if disabling failed.
     /// </summary>
-    public void CompleteFirstRun(IReadOnlyCollection<int> disableIndices)
+    public void CompleteFirstRun(IReadOnlyCollection<ConfigLine> lines)
     {
         _firstRunLines = null;
         Now(e =>
         {
             try
             {
-                if (disableIndices.Count > 0) e.DisableForeignLines(disableIndices);
+                if (lines.Count > 0) e.DisableForeignLines(lines);
             }
             finally
             {
@@ -362,6 +437,13 @@ public sealed class EngineHost
         {
             action();
         }
+        catch (ConfigChangedException)
+        {
+            // Another app changed config.txt after we read it; nothing was written. Publishing a new
+            // snapshot makes the Settings page re-read the file.
+            _uiError = ConfigChangedMessage;
+            Publish();
+        }
         catch (Exception ex)
         {
             Debug.WriteLine($"Curvy: engine call failed: {ex}");
@@ -369,6 +451,8 @@ public sealed class EngineHost
             Publish();
         }
     }
+
+    public const string ConfigChangedMessage = "config.txt changed — please review again.";
 
     void OnEngineChanged(object? sender, EventArgs e)
     {
@@ -384,9 +468,9 @@ public sealed class EngineHost
 
     EngineState Snapshot() => _engine is { } e
         ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError,
-            _startupError, _uiError, _reEnabled, _firstRunLines, ++_version)
+            _startupError, _uiError, _reEnabled, _firstRunLines, _includeLoop, ++_version)
         : new EngineState(ApoAvailable, false, TriedPath, [], CurvySettings.Default, null,
-            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, ++_version);
+            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, false, ++_version);
 }
 
 /// <summary>The <c>UseEngine()</c> hook: current <see cref="EngineState"/>, re-rendering on every change.</summary>

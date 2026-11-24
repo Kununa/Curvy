@@ -99,6 +99,28 @@ public sealed class Shell : EngineComponent
         if (state.StartupError is { } startupError)
             bars.Add(InfoBar("Curvy couldn't start", startupError)
                 with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Error });
+        if (state.Ready && state.Settings.IntegrationPaused)
+            bars.Add(InfoBar("Curvy is disconnected from Equalizer APO",
+                    "config.txt is back to its original, so your EQ isn't applied.")
+                with
+                {
+                    IsOpen = true,
+                    IsClosable = false,
+                    Severity = InfoBarSeverity.Warning,
+                    ActionButtonContent = "Reconnect",
+                    OnActionButtonClick = host.Reconnect,
+                });
+        if (state.IncludeRemovedRepeatedly)
+            bars.Add(InfoBar("Another app keeps removing Curvy's line from config.txt.",
+                    "Curvy stopped adding it back automatically, so your EQ isn't applied.")
+                with
+                {
+                    IsOpen = true,
+                    IsClosable = false,
+                    Severity = InfoBarSeverity.Warning,
+                    ActionButtonContent = "Add it back",
+                    OnActionButtonClick = host.AddIncludeBack,
+                });
         if (state.ReEnabledLines.Count > 0)
             bars.Add(InfoBar("Another app re-enabled: " + string.Join(", ", state.ReEnabledLines.Select(l => l.Text.Trim()))
                         + ". Effects may stack.", null)
@@ -109,6 +131,8 @@ public sealed class Shell : EngineComponent
                     Severity = InfoBarSeverity.Warning,
                     ActionButtonContent = "Disable again",
                     OnActionButtonClick = host.DisableReEnabledLines,
+                    // Second action: keep the line on and stop warning about it.
+                    Content = Button("Keep it on", host.KeepReEnabledLines).Margin(0, 0, 0, 8),
                     OnClosed = host.DismissReEnabledLines,
                 });
         if (state.UiError is { } uiError)

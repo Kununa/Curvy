@@ -94,8 +94,14 @@ namespace Curvy.App
                 state.Profiles.Select(p => (p.Id, p.Name)).ToList(),
                 state.ActiveProfile?.Id,
                 state.Settings.MasterEnabled,
+                state.Settings.IntegrationPaused,
                 id => { if (state.Ready) host.Now(e => e.Activate(id)); },
-                on => { if (state.Ready) host.Now(e => e.SetMasterEnabled(on)); },
+                on =>
+                {
+                    if (!state.Ready) return;
+                    if (state.Settings.IntegrationPaused) OpenWindow(); // the Reconnect bar is there
+                    else host.Now(e => e.SetMasterEnabled(on));
+                },
                 OpenWindow,
                 Exit));
 

@@ -1,3 +1,4 @@
+using Curvy.Core.Engine;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
@@ -9,6 +10,7 @@ public record TrayMenuProps(
     IReadOnlyList<(Guid Id, string Name)> Profiles,
     Guid? ActiveId,
     bool MasterEnabled,
+    bool Disconnected,
     Action<Guid?> OnActivate,
     Action<bool> OnMasterToggle,
     Action OnOpen,
@@ -28,7 +30,7 @@ public sealed class TrayMenu : Component<TrayMenuProps>
     public override Element Render()
     {
         var activeName = Props.ActiveId is { } id ? Props.Profiles.FirstOrDefault(p => p.Id == id).Name : null;
-        var tooltip = Tooltip(activeName, Props.MasterEnabled);
+        var tooltip = TrayText.Tooltip(activeName, Props.MasterEnabled, Props.Disconnected);
         var tray = UseTrayIcon(new TrayIconSpec(Icon, tooltip, WindowKey.Of("curvy-tray")));
         var latest = UseRef(Props);
         latest.Current = Props;
@@ -50,19 +52,6 @@ public sealed class TrayMenu : Component<TrayMenuProps>
         return Empty();
     }
 
-    /// <summary>Win32 tray tooltips hold at most 127 characters (128 with the terminator).</summary>
-    public const int MaxTooltipLength = 127;
-
-    /// <summary><c>Curvy – &lt;active name | No profile | EQ off&gt;</c>, truncated to 127 characters.</summary>
-    public static string Tooltip(string? activeProfileName, bool masterEnabled)
-    {
-        var text = "Curvy – " + (!masterEnabled ? "EQ off" : activeProfileName ?? "No profile");
-        if (text.Length <= MaxTooltipLength) return text;
-        var cut = MaxTooltipLength - 1; // room for the ellipsis
-        if (char.IsHighSurrogate(text[cut - 1])) cut--; // don't split a surrogate pair
-        return text[..cut] + "…";
-    }
-
     static Element BuildMenu(TrayMenuProps p, ReactorTrayIcon tray)
     {
         Action Close(Action a) => () =>
@@ -79,7 +68,10 @@ public sealed class TrayMenu : Component<TrayMenuProps>
         foreach (var (id, name) in p.Profiles)
             items.Add(MenuItem(Check(p.ActiveId == id) + name, Close(() => p.OnActivate(id))));
         items.Add(Separator());
-        items.Add(MenuItem(Check(p.MasterEnabled) + "EQ on/off", Close(() => p.OnMasterToggle(!p.MasterEnabled))));
+        // While disconnected (after a restore) the EQ toggle can't help: open the window (Reconnect) instead.
+        items.Add(p.Disconnected
+            ? MenuItem("     EQ disconnected…", Close(p.OnOpen))
+            : MenuItem(Check(p.MasterEnabled) + "EQ on/off", Close(() => p.OnMasterToggle(!p.MasterEnabled))));
         items.Add(Separator());
         items.Add(MenuItem("Open Curvy", Close(p.OnOpen)));
         items.Add(MenuItem("Exit", Close(p.OnExit)));

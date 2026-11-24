@@ -25,6 +25,9 @@ public sealed class CurvyEngineTests : IDisposable
     private ApoConfig NewApo() => new(ApoDir);
     private CurvyEngine NewEngine() => new(new ProfileStore(ProfDir), new SettingsStore(SetDir), NewApo());
     private string Output() => File.ReadAllText(NewApo().OutputPath);
+    private ConfigLine Line(int index) => NewApo().ReadConfigTxt()[index];
+    private ConfigLine Peace() => NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt");
+    private string BackupPath => NewApo().ConfigTxtPath + ".curvy-backup";
 
     private static Profile WithFilter(string name, double hz) =>
         Profile.New(name) with { Preference = new Preference(new ToneControls(), [new Filter(FilterType.Peaking, hz, 3, 1)]) };
@@ -93,7 +96,7 @@ public sealed class CurvyEngineTests : IDisposable
     {
         var e = NewEngine();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        e.DisableForeignLines([idx]);
+        e.DisableForeignLines([Line(idx)]);
         Assert.True(File.Exists(NewApo().ConfigTxtPath + ".curvy-backup"));
         Assert.Contains("Include: peace.txt", File.ReadAllText(NewApo().ConfigTxtPath + ".curvy-backup"));
         Assert.Contains("# [Curvy] Include: peace.txt", File.ReadAllText(NewApo().ConfigTxtPath));
@@ -118,7 +121,7 @@ public sealed class CurvyEngineTests : IDisposable
         var e = NewEngine();
         e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        e.DisableForeignLines([idx]);
+        e.DisableForeignLines([Line(idx)]);
         File.AppendAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
         var h = e.CheckAndRepair();
         Assert.Single(h.ReEnabledLines);
@@ -163,8 +166,9 @@ public sealed class CurvyEngineTests : IDisposable
         var before = File.ReadAllText(NewApo().ConfigTxtPath);
         var includeIdx = NewApo().ReadConfigTxt().First(l => l.Kind == ConfigLineKind.CurvyInclude).Index;
         var peace = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        Assert.Throws<ArgumentException>(() => e.DisableForeignLines([peace, includeIdx]));
-        Assert.Throws<ArgumentException>(() => e.DisableForeignLines([peace, 99]));
+        Assert.Throws<ArgumentException>(() => e.DisableForeignLines([Line(peace), Line(includeIdx)]));
+        Assert.ThrowsAny<InvalidOperationException>(() =>
+            e.DisableForeignLines([Line(peace), new ConfigLine(99, "Include: x.txt", ConfigLineKind.Active)]));
         Assert.Equal(before, File.ReadAllText(NewApo().ConfigTxtPath));
         Assert.Empty(e.Settings.DisabledForeignLines);
     }
@@ -178,7 +182,7 @@ public sealed class CurvyEngineTests : IDisposable
         var e = NewEngine();
         var raised = 0;
         e.Changed += (_, _) => raised++;
-        e.DisableForeignLines([0, 1]);
+        e.DisableForeignLines([Line(0), Line(1)]);
         Assert.Equal(["Include: a.txt", "Include: b.txt"], e.Settings.DisabledForeignLines);
         Assert.Equal(1, raised);
     }
@@ -270,7 +274,7 @@ public sealed class CurvyEngineTests : IDisposable
         var e = NewEngine();
         e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        e.DisableForeignLines([idx]);
+        e.DisableForeignLines([Line(idx)]);
         var disabled = NewApo().ReadConfigTxt()[idx];
         Assert.Equal(ConfigLineKind.CurvyDisabled, disabled.Kind);
 
@@ -288,8 +292,8 @@ public sealed class CurvyEngineTests : IDisposable
         var e = NewEngine();
         e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        e.DisableForeignLines([idx]);
-        Assert.Throws<InvalidOperationException>(() => e.EnableForeignLine(idx, "# [Curvy] Include: other.txt"));
+        e.DisableForeignLines([Line(idx)]);
+        Assert.Throws<ConfigChangedException>(() => e.EnableForeignLine(idx, "# [Curvy] Include: other.txt"));
         Assert.Equal(["Include: peace.txt"], e.Settings.DisabledForeignLines);
     }
 
@@ -301,22 +305,6 @@ public sealed class CurvyEngineTests : IDisposable
         Assert.Equal("Include: peace.txt", e.ReadConfigLines()[0].Text);
     }
 
-    [Fact]
-    public void RestoreOriginalConfig_RestoresBackup_ForgetsDisabledLines_AndReAddsInclude()
-    {
-        var e = NewEngine();
-        e.Apply(); // first config.txt write backs up the original
-        var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
-        e.DisableForeignLines([idx]);
-
-        Assert.True(e.RestoreOriginalConfig());
-
-        var lines = NewApo().ReadConfigTxt();
-        Assert.Contains(lines, l => l.Kind == ConfigLineKind.Active && l.Text == "Include: peace.txt");
-        Assert.Contains(lines, l => l.Kind == ConfigLineKind.CurvyInclude);
-        Assert.Empty(e.Settings.DisabledForeignLines);
-        Assert.Empty(e.CheckAndRepair().ReEnabledLines);
-    }
 
     [Fact]
     public void RestoreOriginalConfig_ReturnsFalse_WithoutBackup()
@@ -324,5 +312,151 @@ public sealed class CurvyEngineTests : IDisposable
         var e = NewEngine();
         Assert.False(e.RestoreOriginalConfig());
         Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(NewApo().ConfigTxtPath));
+    }
+
+    // ── Fix round 1 ─────────────────────────────────────────────────────
+
+    [Fact]
+    public void DisableForeignLines_ShiftedLine_Throws_AndLeavesFileUnchanged()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var peace = Peace(); // read, then another app inserts a line above it
+        File.WriteAllText(NewApo().ConfigTxtPath, "Preamp: -3 dB\r\n" + File.ReadAllText(NewApo().ConfigTxtPath));
+        var before = File.ReadAllBytes(NewApo().ConfigTxtPath);
+
+        Assert.Throws<ConfigChangedException>(() => e.DisableForeignLines([peace]));
+
+        Assert.Equal(before, File.ReadAllBytes(NewApo().ConfigTxtPath));
+        Assert.Empty(e.Settings.DisabledForeignLines);
+    }
+
+    [Fact]
+    public void CheckAndRepair_RepairDenied_ReportsMissing_WithoutWriting()
+    {
+        var e = NewEngine();
+        e.Apply();
+        File.WriteAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
+        var h = e.CheckAndRepair(allowRepair: () => false);
+        Assert.False(h.RepairedInclude);
+        Assert.True(h.IncludeMissing);
+        Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(NewApo().ConfigTxtPath));
+    }
+
+    [Fact]
+    public void CheckAndRepair_RepairAllowed_DoesNotReportMissing()
+    {
+        var e = NewEngine();
+        e.Apply();
+        File.WriteAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
+        var asked = 0;
+        var h = e.CheckAndRepair(() => { asked++; return true; });
+        Assert.True(h.RepairedInclude);
+        Assert.False(h.IncludeMissing);
+        Assert.Equal(1, asked);
+        Assert.Equal(0, CountAsks(e)); // include present: the guard isn't consulted
+
+        static int CountAsks(CurvyEngine engine)
+        {
+            var n = 0;
+            engine.CheckAndRepair(() => { n++; return true; });
+            return n;
+        }
+    }
+
+    [Fact]
+    public void EnableForeignLine_OnReEnabledActiveLine_JustForgetsIt()
+    {
+        // "Keep it on" for a line another app re-enabled.
+        var e = NewEngine();
+        e.Apply();
+        e.DisableForeignLines([Peace()]);
+        var disabled = NewApo().ReadConfigTxt().First(l => l.Kind == ConfigLineKind.CurvyDisabled);
+        var text = File.ReadAllText(NewApo().ConfigTxtPath)
+            .Replace(disabled.Text, "Include: peace.txt");
+        File.WriteAllText(NewApo().ConfigTxtPath, text);
+        var reEnabled = Assert.Single(e.CheckAndRepair().ReEnabledLines);
+        var before = File.ReadAllBytes(NewApo().ConfigTxtPath);
+
+        e.EnableForeignLine(reEnabled.Index, reEnabled.Text);
+
+        Assert.Empty(e.Settings.DisabledForeignLines);
+        Assert.Empty(e.CheckAndRepair().ReEnabledLines);
+        Assert.Equal(before, File.ReadAllBytes(NewApo().ConfigTxtPath));
+    }
+
+    [Fact]
+    public void RestoreOriginalConfig_LeavesConfigByteIdentical_AndPauses()
+    {
+        var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
+        var e = NewEngine();
+        e.Apply(); // first config.txt write backs up the original
+        e.DisableForeignLines([Peace()]);
+
+        Assert.True(e.RestoreOriginalConfig());
+
+        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
+        Assert.True(e.Settings.IntegrationPaused);
+        Assert.Empty(e.Settings.DisabledForeignLines);
+        Assert.True(new SettingsStore(SetDir).Load().IntegrationPaused);
+    }
+
+    [Fact]
+    public void CheckAndRepair_WhilePaused_DoesNotReAddInclude()
+    {
+        var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
+        var e = NewEngine();
+        e.Apply();
+        e.RestoreOriginalConfig();
+
+        var h = e.CheckAndRepair();
+
+        Assert.False(h.RepairedInclude);
+        Assert.False(h.IncludeMissing);
+        Assert.Empty(h.ReEnabledLines);
+        Assert.Empty(h.ActiveEqLikeForeignLines);
+        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
+    }
+
+    [Fact]
+    public void Apply_WhilePaused_DoesNotTouchConfigTxt()
+    {
+        var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
+        var e = NewEngine();
+        e.Apply();
+        e.RestoreOriginalConfig();
+        File.Delete(NewApo().OutputPath);
+
+        e.SetMasterEnabled(false); // Mutate -> Apply
+        e.Apply();
+
+        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
+        Assert.Contains("# EQ off", Output()); // curvy.txt is still written
+        Assert.True(NewEngine().Settings.IntegrationPaused); // survives a restart
+    }
+
+    [Fact]
+    public void Resume_ReAddsInclude_KeepsBackup()
+    {
+        var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
+        var e = NewEngine();
+        e.Apply();
+        e.SetFirstRunShown(true);
+        e.RestoreOriginalConfig();
+
+        e.ResumeIntegration();
+
+        Assert.False(e.Settings.IntegrationPaused);
+        Assert.False(e.Settings.FirstRunShown); // the first-run check runs again
+        Assert.Contains(NewApo().ReadConfigTxt(), l => l.Kind == ConfigLineKind.CurvyInclude);
+        Assert.Equal(original, File.ReadAllBytes(BackupPath));
+    }
+
+    [Fact]
+    public void RestoreOriginalConfig_ReturnsFalse_WithoutBackup_AndDoesNotPause()
+    {
+        var e = NewEngine();
+        Assert.False(e.RestoreOriginalConfig());
+        Assert.False(e.Settings.IntegrationPaused);
     }
 }

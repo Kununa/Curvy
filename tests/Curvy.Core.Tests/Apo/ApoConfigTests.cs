@@ -123,7 +123,7 @@ public sealed class ApoConfigTests : IDisposable
     public void SetLineDisabled_Throws_WhenTextMismatch()
     {
         File.WriteAllText(cfg, "Include: a.txt\r\nInclude: b.txt\r\n");
-        Assert.Throws<InvalidOperationException>(() => apo.SetLineDisabled(0, "Include: b.txt", true));
+        Assert.Throws<ConfigChangedException>(() => apo.SetLineDisabled(0, "Include: b.txt", true));
         Assert.Equal("Include: a.txt\r\nInclude: b.txt\r\n", File.ReadAllText(cfg));
     }
 

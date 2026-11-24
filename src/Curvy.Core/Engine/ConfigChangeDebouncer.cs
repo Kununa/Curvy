@@ -4,10 +4,11 @@ namespace Curvy.Core.Engine;
 /// Timing for the <c>config.txt</c> watcher (UI-free so it can be unit-tested with a fake
 /// <see cref="TimeProvider"/>). <see cref="NotifyChanged"/> (file-system event, any thread) starts or
 /// restarts a <see cref="Debounce"/> timer; when it elapses <c>onFire</c> runs on a timer thread
-/// (callers marshal to the UI thread). Changes are ignored while Curvy's own write is recent: a
-/// change reported within <see cref="Suppress"/> of <see cref="NotifyOwnWrite"/>, or a pending check
-/// whose timer elapses within that window (the watcher may report a write before Curvy marks it),
-/// is dropped.
+/// (callers marshal to the UI thread). Changes are never dropped, only deferred past Curvy's own
+/// writes: a change reported within <see cref="Suppress"/> of <see cref="NotifyOwnWrite"/> is checked
+/// when that window ends (but no sooner than the debounce), and a pending check whose timer elapses
+/// inside the window (the watcher may report a write before Curvy marks it) is rescheduled to the
+/// window's end. A real external edit that coincides with Curvy's write is therefore still seen.
 /// </summary>
 public sealed class ConfigChangeDebouncer : IDisposable
 {
@@ -44,8 +45,10 @@ public sealed class ConfigChangeDebouncer : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || IsSuppressed()) return;
-            _timer.Change(Debounce, Timeout.InfiniteTimeSpan);
+            if (_disposed) return;
+            var wait = Debounce;
+            if (RemainingSuppression() is { } left && left > wait) wait = left;
+            _timer.Change(wait, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -53,13 +56,23 @@ public sealed class ConfigChangeDebouncer : IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || IsSuppressed()) return;
+            if (_disposed) return;
+            if (RemainingSuppression() is { } left)
+            {
+                _timer.Change(left, Timeout.InfiniteTimeSpan); // defer to the end of the own-write window
+                return;
+            }
         }
         _onFire();
     }
 
-    private bool IsSuppressed() =>
-        _lastOwnWrite is { } w && _time.GetUtcNow() - w < Suppress;
+    /// <summary>Time left in the own-write window, or null when outside it.</summary>
+    private TimeSpan? RemainingSuppression()
+    {
+        if (_lastOwnWrite is not { } w) return null;
+        var left = w + Suppress - _time.GetUtcNow();
+        return left > TimeSpan.Zero ? left : null;
+    }
 
     public void Dispose()
     {

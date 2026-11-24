@@ -5,10 +5,12 @@ using Curvy.Core.Storage;
 
 namespace Curvy.Core.Engine;
 
+/// <param name="IncludeMissing">Curvy's include needed repair but the repair was refused (see <c>allowRepair</c>).</param>
 public record ConfigHealth(
     bool RepairedInclude,
     IReadOnlyList<ConfigLine> ReEnabledLines,
-    IReadOnlyList<ConfigLine> ActiveEqLikeForeignLines);
+    IReadOnlyList<ConfigLine> ActiveEqLikeForeignLines,
+    bool IncludeMissing = false);
 
 public sealed class CurvyEngine
 {
@@ -95,7 +97,8 @@ public sealed class CurvyEngine
         Current = EqChain.Build(ActiveProfile, Settings);
         try
         {
-            _apo.EnsureCurvyInclude();
+            // While paused (after "Restore original config.txt") config.txt is left untouched.
+            if (!Settings.IntegrationPaused) _apo.EnsureCurvyInclude();
             _apo.WriteOutput(Current);
             LastError = null;
         }
@@ -106,18 +109,32 @@ public sealed class CurvyEngine
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    public ConfigHealth CheckAndRepair()
+    /// <summary>
+    /// Re-adds Curvy's include when it is missing (or duplicated) and reports the lines Curvy
+    /// disabled that are active again and the active EQ-like foreign lines. When the include needs
+    /// repair, <paramref name="allowRepair"/> is asked first (null = always repair); if it refuses,
+    /// nothing is written and <see cref="ConfigHealth.IncludeMissing"/> is set. While the
+    /// integration is paused it does nothing and reports nothing.
+    /// </summary>
+    public ConfigHealth CheckAndRepair(Func<bool>? allowRepair = null)
     {
+        if (Settings.IntegrationPaused) return new ConfigHealth(false, [], []);
         try
         {
-            var repaired = _apo.EnsureCurvyInclude();
             var lines = _apo.ReadConfigTxt();
-            var remembered = Settings.DisabledForeignLines;
-            var reEnabled = lines
-                .Where(l => l.Kind == ConfigLineKind.Active && remembered.Contains(l.Text.Trim()))
-                .ToList();
+            var repaired = false;
+            var missing = false;
+            if (lines.Count(l => l.Kind == ConfigLineKind.CurvyInclude) != 1)
+            {
+                if (allowRepair?.Invoke() ?? true)
+                {
+                    repaired = _apo.EnsureCurvyInclude();
+                    lines = _apo.ReadConfigTxt();
+                }
+                else missing = true;
+            }
             var eqLike = lines.Where(l => l.Kind == ConfigLineKind.Active && l.IsEqLike).ToList();
-            return new ConfigHealth(repaired, reEnabled, eqLike);
+            return new ConfigHealth(repaired, ReEnabled(lines), eqLike, missing);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -126,23 +143,40 @@ public sealed class CurvyEngine
         }
     }
 
-    public void DisableForeignLines(IEnumerable<int> indices)
+    /// <summary>Lines Curvy disabled earlier that are active again, as they are on disk now.</summary>
+    public IReadOnlyList<ConfigLine> FindReEnabledLines() => ReEnabled(_apo.ReadConfigTxt());
+
+    private List<ConfigLine> ReEnabled(IReadOnlyList<ConfigLine> lines)
     {
-        var wanted = indices.Distinct().ToList();
-        var lines = _apo.ReadConfigTxt();
-        foreach (var i in wanted)
+        var remembered = Settings.DisabledForeignLines;
+        return lines.Where(l => l.Kind == ConfigLineKind.Active && remembered.Contains(l.Text.Trim())).ToList();
+    }
+
+    /// <summary>
+    /// Comments out the given lines (as previously read) and remembers their text. Before writing
+    /// anything, each line must still be at its index with the same text, or
+    /// <see cref="ConfigChangedException"/> is thrown; a line that isn't an active (foreign) line
+    /// throws <see cref="ArgumentException"/>.
+    /// </summary>
+    public void DisableForeignLines(IEnumerable<ConfigLine> expected)
+    {
+        var wanted = expected.DistinctBy(l => l.Index).ToList();
+        var current = _apo.ReadConfigTxt();
+        foreach (var l in wanted)
         {
-            if (i < 0 || i >= lines.Count || lines[i].Kind != ConfigLineKind.Active)
-                throw new ArgumentException($"Line {i} is not an active config.txt line.", nameof(indices));
+            if (l.Index < 0 || l.Index >= current.Count || current[l.Index].Text != l.Text)
+                throw new ConfigChangedException();
+            if (current[l.Index].Kind != ConfigLineKind.Active)
+                throw new ArgumentException($"Line {l.Index} is not an active config.txt line.", nameof(expected));
         }
         _apo.BackupOnce();
         var disabled = Settings.DisabledForeignLines;
         try
         {
-            foreach (var i in wanted)
+            foreach (var l in wanted)
             {
-                _apo.SetLineDisabled(i, lines[i].Text, true);
-                var t = lines[i].Text.Trim();
+                _apo.SetLineDisabled(l.Index, l.Text, true);
+                var t = l.Text.Trim();
                 if (!disabled.Contains(t)) disabled = disabled.Add(t);
             }
         }
@@ -155,9 +189,10 @@ public sealed class CurvyEngine
 
     /// <summary>
     /// Re-enables a line Curvy disabled (<c># [Curvy] </c> prefix) and stops tracking it, so the
-    /// watcher doesn't report the user's own choice as "another app re-enabled it".
+    /// watcher doesn't report the user's own choice as "another app re-enabled it". On a line that is
+    /// already active (re-enabled by another app: "Keep it on") it only stops tracking it.
     /// <paramref name="expectedText"/> is the line as read (with or without the prefix); throws
-    /// <see cref="InvalidOperationException"/> if <c>config.txt</c> changed meanwhile.
+    /// <see cref="ConfigChangedException"/> if <c>config.txt</c> changed meanwhile.
     /// </summary>
     public void EnableForeignLine(int index, string expectedText)
     {
@@ -171,14 +206,22 @@ public sealed class CurvyEngine
     }
 
     /// <summary>
-    /// Restores <c>config.txt</c> from the backup taken before Curvy's first change, forgets the
-    /// lines Curvy disabled (they're active again) and re-applies, which re-adds Curvy's include.
-    /// Returns false (and changes nothing) when there is no backup.
+    /// Restores <c>config.txt</c> byte-for-byte from the backup taken before Curvy's first change,
+    /// forgets the lines Curvy disabled and pauses the integration: Curvy stops adding (or
+    /// repairing) its include until <see cref="ResumeIntegration"/>. Returns false (and changes
+    /// nothing) when there is no backup.
     /// </summary>
     public bool RestoreOriginalConfig()
     {
         if (!_apo.RestoreBackup()) return false;
-        Mutate(Settings with { DisabledForeignLines = [] });
+        Persist(Settings with { DisabledForeignLines = [], IntegrationPaused = true });
         return true;
     }
+
+    /// <summary>
+    /// "Reconnect" after a restore: un-pauses, re-adds the include (the original backup is kept)
+    /// and resets <see cref="CurvySettings.FirstRunShown"/> so the other-EQ check runs again.
+    /// </summary>
+    public void ResumeIntegration() =>
+        Mutate(Settings with { IntegrationPaused = false, FirstRunShown = false });
 }

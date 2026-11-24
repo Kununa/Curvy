@@ -8,8 +8,8 @@ using static Microsoft.UI.Reactor.Factories;
 namespace Curvy.App.Components;
 
 /// <param name="Lines">Active EQ-like lines of config.txt that aren't Curvy's.</param>
-/// <param name="OnDone">Line indices to disable (empty when the user keeps them all).</param>
-public record FirstRunDialogProps(IReadOnlyList<ConfigLine> Lines, Action<IReadOnlyCollection<int>> OnDone);
+/// <param name="OnDone">Lines to disable, as read (empty when the user keeps them all).</param>
+public record FirstRunDialogProps(IReadOnlyList<ConfigLine> Lines, Action<IReadOnlyCollection<ConfigLine>> OnDone);
 
 /// <summary>
 /// Shown once: other EQ in config.txt (Peace, another include, a preamp…) would stack with Curvy's.
@@ -50,7 +50,7 @@ public sealed class FirstRunDialog : Component<FirstRunDialogProps>
             {
                 setOpen(false);
                 props.OnDone(result == ContentDialogResult.Primary
-                    ? props.Lines.Where(l => !unchecked_.Contains(l.Index)).Select(l => l.Index).ToList()
+                    ? props.Lines.Where(l => !unchecked_.Contains(l.Index)).ToList()
                     : []);
             },
         };

@@ -42,6 +42,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
 
         // Re-read config.txt whenever the engine (or the watcher) published a new snapshot.
         var config = UseMemo(() => ReadConfig(host), state.Version);
+        var paused = state.Settings.IntegrationPaused;
         var startWithWindows = UseMemo(host.IsStartWithWindowsEnabled, state.Version);
 
         // Leaving the page: persist a pending headroom edit now.
@@ -54,7 +55,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
             if (on && line.Kind == ConfigLineKind.CurvyDisabled)
                 host.Now(e => e.EnableForeignLine(line.Index, line.Text));
             else if (!on && line.Kind == ConfigLineKind.Active)
-                host.Now(e => e.DisableForeignLines(new[] { line.Index }));
+                host.Now(e => e.DisableForeignLines(new[] { line }));
         }
 
         Element LineRow(ConfigLine line)
@@ -68,7 +69,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
             };
             return HStack(12,
                     ToggleSwitch(isOn, on => Toggle(line, on), "On", "Off")
-                        .IsEnabled(canToggle)
+                        .IsEnabled(canToggle && !paused)
                         .AutomationName($"Enable {text}")
                         .VAlign(VerticalAlignment.Center),
                     VStack(0,
@@ -85,19 +86,20 @@ public sealed class SettingsPage : Component<SettingsPageProps>
 
         void Restore()
         {
-            var restored = false;
-            host.Now(e => restored = e.RestoreOriginalConfig());
-            setRestoreNote(restored
-                ? "config.txt was restored. Curvy added its own include line back, because it is still running."
-                : "There is no backup yet: Curvy hasn't changed config.txt.");
+            // null: it failed and the error bar says why — no note then.
+            setRestoreNote(host.RestoreOriginalConfig() switch
+            {
+                true => "config.txt was restored. Curvy is disconnected until you click Reconnect.",
+                false => "There is no backup yet: Curvy hasn't changed config.txt.",
+                null => null,
+            });
         }
 
         var restoreDialog = ContentDialog("Restore the original config.txt?",
                 Body("config.txt will be replaced by the copy saved before Curvy first changed it. Lines Curvy " +
-                     "turned off become active again, so their EQ can stack with Curvy's.\n\n" +
-                     "Curvy adds its own line (Include: Curvy\\curvy.txt) back right away, because it needs it " +
-                     "while it runs, and again whenever it starts. Unless you also close Curvy (tray menu → Exit) " +
-                     "and remove that line, Curvy stays in config.txt.").TextWrapping(TextWrapping.Wrap),
+                     "turned off become active again.\n\n" +
+                     "Curvy will stop adding its line to config.txt until you click Reconnect, so your EQ " +
+                     "isn't applied until then.").TextWrapping(TextWrapping.Wrap),
                 "Restore") with
             {
                 IsOpen = confirmRestore,
@@ -117,7 +119,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
                 with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational },
             linesArea,
             HStack(12,
-                Button("Restore original config.txt", () => setConfirmRestore(true)),
+                Button("Restore original config.txt", () => setConfirmRestore(true)).IsEnabled(!paused),
                 restoreNote is null ? null : Caption(restoreNote).VAlign(VerticalAlignment.Center).TextWrapping(TextWrapping.Wrap)),
             restoreDialog);
 

@@ -42,14 +42,31 @@ public sealed class ConfigChangeDebouncerTests
     }
 
     [Fact]
-    public void Change_WithinOneSecondOfOwnWrite_IsIgnored()
+    public void Change_200msAfterOwnWrite_FiresOnceAtWindowEnd()
+    {
+        using var d = New();
+        d.NotifyOwnWrite();
+        Advance(200);
+        d.NotifyChanged();
+        Advance(799);
+        Assert.Equal(0, _fired);
+        Advance(1); // 1 s after the own write
+        Assert.Equal(1, _fired);
+        Advance(5000);
+        Assert.Equal(1, _fired);
+    }
+
+    [Fact]
+    public void Change_LateInOwnWriteWindow_StillWaitsTheDebounce()
     {
         using var d = New();
         d.NotifyOwnWrite();
         Advance(999);
         d.NotifyChanged();
-        Advance(2000);
+        Advance(499);
         Assert.Equal(0, _fired);
+        Advance(1);
+        Assert.Equal(1, _fired);
     }
 
     [Fact]
@@ -64,17 +81,22 @@ public sealed class ConfigChangeDebouncerTests
     }
 
     [Fact]
-    public void OwnWrite_WhileDebouncing_DropsThePendingCheck()
+    public void OwnWrite_WhileDebouncing_DefersThePendingCheck()
     {
-        // The watcher can report a write before Curvy marks it as its own.
+        // The watcher can report a write before Curvy marks it as its own; a real external change
+        // could also coincide with it, so the check is deferred to the window's end, never dropped.
         using var d = New();
         d.NotifyChanged();
         Advance(10);
         d.NotifyOwnWrite();
         Advance(490); // timer elapses now, 490 ms after the own write
         Assert.Equal(0, _fired);
-        Advance(2000);
+        Advance(509);
         Assert.Equal(0, _fired);
+        Advance(1); // 1 s after the own write
+        Assert.Equal(1, _fired);
+        Advance(5000);
+        Assert.Equal(1, _fired);
     }
 
     [Fact]

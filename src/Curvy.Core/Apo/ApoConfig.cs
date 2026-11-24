@@ -82,7 +82,7 @@ public sealed class ApoConfig(string configDir)
         var line = classified[index];
         var stripped = line.Kind == ConfigLineKind.CurvyDisabled ? line.Text[ConfigTxt.DisabledPrefix.Length..] : line.Text;
         if (line.Text != expectedText && stripped != expectedText)
-            throw new InvalidOperationException("config.txt changed");
+            throw new ConfigChangedException();
         if (line.Kind == ConfigLineKind.CurvyInclude)
             throw new InvalidOperationException("Curvy's own include line cannot be toggled.");
 
