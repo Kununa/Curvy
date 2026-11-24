@@ -84,5 +84,9 @@ public sealed class TrayMenu : Component<TrayMenuProps>
             });
 
     static Element Separator() => Rectangle().Height(1).Margin(4, 2).Opacity(0.3).Set(r =>
-        r.Fill = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]);
+        r.Fill = Application.Current?.Resources is { } res
+                 && res.TryGetValue("TextFillColorSecondaryBrush", out var b)
+                 && b is Microsoft.UI.Xaml.Media.Brush brush
+            ? brush
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray));
 }
