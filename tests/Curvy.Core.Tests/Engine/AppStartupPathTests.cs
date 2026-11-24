@@ -1,10 +1,11 @@
+using System.IO;
 using System.Collections.Immutable;
 using Curvy.Core.Apo;
 using Curvy.Core.Engine;
 using Curvy.Core.Filters;
 using Curvy.Core.Model;
 using Curvy.Core.Storage;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Engine;
 
@@ -13,7 +14,7 @@ namespace Curvy.Core.Tests.Engine;
 /// (blank profile, two bands, bass +4, activate), but against temp dirs selected through the
 /// same environment overrides the app honours: CURVY_APO_CONFIG_DIR and CURVY_DATA_DIR.
 /// </summary>
-[Collection(EnvCollection.Name)]
+[NotInParallel("env")]
 public sealed class AppStartupPathTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "curvy-app-path-" + Guid.NewGuid().ToString("N"));
@@ -37,22 +38,22 @@ public sealed class AppStartupPathTests : IDisposable
         try { Directory.Delete(_root, true); } catch { }
     }
 
-    [Fact]
-    public void StartupApply_ThenEditAndActivate_WritesFilterViewText_IncludeAndBackup()
+    [Test]
+    public async Task StartupApply_ThenEditAndActivate_WritesFilterViewText_IncludeAndBackup()
     {
         // EngineHost: locate, check writable, construct over CurvyPaths, Apply().
         var dir = ApoLocator.FindConfigDirectory();
-        Assert.Equal(ApoDir, dir);
+        await Assert.That(dir).IsEqualTo(ApoDir);
         var apo = new ApoConfig(dir!);
-        Assert.True(apo.IsWritable());
+        await Assert.That(apo.IsWritable()).IsTrue();
         var engine = new CurvyEngine(new ProfileStore(CurvyPaths.ProfilesDir), new SettingsStore(CurvyPaths.Root), apo);
         engine.Apply();
 
         var config = File.ReadAllText(apo.ConfigTxtPath);
-        Assert.Contains("Include: peace.txt", config);
-        Assert.Single(config.Split("\r\n"), l => l == ConfigTxt.CurvyIncludeLine);
-        Assert.True(File.Exists(apo.ConfigTxtPath + ".curvy-backup"));
-        Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(apo.ConfigTxtPath + ".curvy-backup"));
+        await Assert.That(config).Contains("Include: peace.txt");
+        await Assert.That(config.Split("\r\n").Count(l => l == ConfigTxt.CurvyIncludeLine)).IsEqualTo(1);
+        await Assert.That(File.Exists(apo.ConfigTxtPath + ".curvy-backup")).IsTrue();
+        await Assert.That(File.ReadAllText(apo.ConfigTxtPath + ".curvy-backup")).IsEqualTo("Include: peace.txt\r\n");
 
         // "New blank profile", add two bands, bass +4, then Activate.
         var p = Profile.New("New profile");
@@ -70,11 +71,11 @@ public sealed class AppStartupPathTests : IDisposable
         engine.SaveProfile(p);
         engine.Activate(p.Id);
 
-        Assert.Null(engine.LastError);
-        Assert.False(engine.Current.Bypassed);
-        Assert.True(engine.Current.PreampDb < 0); // +4 bass and +3 band need headroom
+        await Assert.That(engine.LastError).IsNull();
+        await Assert.That(engine.Current.Bypassed).IsFalse();
+        await Assert.That(engine.Current.PreampDb < 0).IsTrue(); // +4 bass and +3 band need headroom
         // curvy.txt is exactly what the filter view shows.
-        Assert.Equal(ApoFormatter.Format(engine.Current), File.ReadAllText(apo.OutputPath));
-        Assert.True(File.Exists(Path.Combine(DataDir, "profiles", p.Id + ".json")));
+        await Assert.That(File.ReadAllText(apo.OutputPath)).IsEqualTo(ApoFormatter.Format(engine.Current));
+        await Assert.That(File.Exists(Path.Combine(DataDir, "profiles", p.Id + ".json"))).IsTrue();
     }
 }

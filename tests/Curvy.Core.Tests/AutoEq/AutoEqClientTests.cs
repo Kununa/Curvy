@@ -1,8 +1,9 @@
+using System.IO;
 using System.Net;
 using System.Text.Json;
 using Curvy.Core.AutoEq;
 using Microsoft.Extensions.Time.Testing;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.AutoEq;
 
@@ -43,100 +44,100 @@ public sealed class AutoEqClientTests : IDisposable
             metaOverride ?? JsonSerializer.Serialize(new { schemaVersion = 1, fetchedAt }));
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_UsesFreshCache_WithoutNetwork()
     {
         SeedCache(_time.GetUtcNow().AddDays(-1));
         var h = new FakeHandler(_ => throw new InvalidOperationException("network"));
         var list = await Client(h).GetIndexAsync();
-        Assert.Equal(2, list.Count);
-        Assert.Empty(h.Requests);
+        await Assert.That(list.Count).IsEqualTo(2);
+        await Assert.That(h.Requests).IsEmpty();
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_RefreshesStaleCache()
     {
         SeedCache(_time.GetUtcNow().AddDays(-8));
         var h = new FakeHandler(_ => Ok(IndexMd + "\n- [Extra](./x/over-ear/Extra) by x\n"));
         var c = Client(h);
         var list = await c.GetIndexAsync();
-        Assert.Equal(3, list.Count);
-        Assert.Single(h.Requests);
-        Assert.Equal(AutoEqClient.BaseUrl + "INDEX.md", h.Requests[0].RequestUri!.ToString());
-        Assert.Equal(_time.GetUtcNow(), c.IndexFetchedAt);
+        await Assert.That(list.Count).IsEqualTo(3);
+        await Assert.That(h.Requests).HasSingleItem();
+        await Assert.That(h.Requests[0].RequestUri!.ToString()).IsEqualTo(AutoEqClient.BaseUrl + "INDEX.md");
+        await Assert.That(c.IndexFetchedAt).IsEqualTo(_time.GetUtcNow());
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_FallsBackToStaleCache_WhenOffline()
     {
         SeedCache(_time.GetUtcNow().AddDays(-8));
         var h = new FakeHandler(_ => throw new HttpRequestException("offline"));
         var list = await Client(h).GetIndexAsync();
-        Assert.Equal(2, list.Count);
+        await Assert.That(list.Count).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_Throws_AutoEqUnavailable_WhenOfflineAndNoCache()
     {
         var h = new FakeHandler(_ => throw new HttpRequestException("offline"));
         await Assert.ThrowsAsync<AutoEqUnavailableException>(() => Client(h).GetIndexAsync());
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_Refetches_WhenCacheCorrupt()
     {
         SeedCache(_time.GetUtcNow(), "{ not json");
         var h = new FakeHandler(_ => Ok(IndexMd));
         var list = await Client(h).GetIndexAsync();
-        Assert.Equal(2, list.Count);
-        Assert.Single(h.Requests);
+        await Assert.That(list.Count).IsEqualTo(2);
+        await Assert.That(h.Requests).HasSingleItem();
     }
 
-    [Theory]
-    [InlineData(HttpStatusCode.Forbidden)]
-    [InlineData((HttpStatusCode)429)]
-    [InlineData(HttpStatusCode.InternalServerError)]
+    [Test]
+    [Arguments(HttpStatusCode.Forbidden)]
+    [Arguments((HttpStatusCode)429)]
+    [Arguments(HttpStatusCode.InternalServerError)]
     public async Task GetIndex_OnErrorStatus_TreatedAsOffline(HttpStatusCode code)
     {
         var h = new FakeHandler(_ => new HttpResponseMessage(code));
         await Assert.ThrowsAsync<AutoEqUnavailableException>(() => Client(h).GetIndexAsync());
         SeedCache(_time.GetUtcNow().AddDays(-9));
-        Assert.Equal(2, (await Client(h).GetIndexAsync()).Count);
+        await Assert.That((await Client(h).GetIndexAsync()).Count).IsEqualTo(2);
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_GarbageDownload_DoesNotOverwriteCache()
     {
         SeedCache(_time.GetUtcNow().AddDays(-9));
         var h = new FakeHandler(_ => Ok("<html>nope</html>"));
         var list = await Client(h).GetIndexAsync();
-        Assert.Equal(2, list.Count);
-        Assert.Equal(IndexMd, File.ReadAllText(Path.Combine(_dir, "INDEX.md")));
+        await Assert.That(list.Count).IsEqualTo(2);
+        await Assert.That(File.ReadAllText(Path.Combine(_dir, "INDEX.md"))).IsEqualTo(IndexMd);
     }
 
-    [Fact]
+    [Test]
     public async Task GetIndex_CallerCancellation_Propagates()
     {
         var h = new FakeHandler(_ => throw new TaskCanceledException());
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Client(h).GetIndexAsync(ct: cts.Token));
+        await Assert.That(async () => await Client(h).GetIndexAsync(ct: cts.Token)).Throws<OperationCanceledException>();
     }
 
-    [Fact]
+    [Test]
     public async Task FetchCorrection_ParsesFilters_AndFillsProvenance()
     {
         var h = new FakeHandler(_ => Ok(PeqTxt));
         var e = AutoEqIndexParser.Parse(IndexMd)[0];
         var corr = await Client(h).FetchCorrectionAsync(e);
-        Assert.Equal(2, corr.Filters.Count);
-        Assert.Equal("Beyerdynamic DT 880", corr.Source.Headphone);
-        Assert.Equal(e.RelativePath, corr.Source.RelativePath);
-        Assert.Equal(_time.GetUtcNow(), corr.Source.FetchedAt);
-        Assert.Equal(AutoEqClient.BaseUrl + e.ParametricEqRelativeUrl, h.Requests[0].RequestUri!.OriginalString);
+        await Assert.That(corr.Filters.Count).IsEqualTo(2);
+        await Assert.That(corr.Source.Headphone).IsEqualTo("Beyerdynamic DT 880");
+        await Assert.That(corr.Source.RelativePath).IsEqualTo(e.RelativePath);
+        await Assert.That(corr.Source.FetchedAt).IsEqualTo(_time.GetUtcNow());
+        await Assert.That(h.Requests[0].RequestUri!.OriginalString).IsEqualTo(AutoEqClient.BaseUrl + e.ParametricEqRelativeUrl);
     }
 
-    [Fact]
+    [Test]
     public async Task FetchCorrection_404_And_EmptyFile_Throw()
     {
         var e = AutoEqIndexParser.Parse(IndexMd)[0];
@@ -146,14 +147,15 @@ public sealed class AutoEqClientTests : IDisposable
         await Assert.ThrowsAsync<AutoEqUnavailableException>(() => Client(hEmpty).FetchCorrectionAsync(e));
     }
 
-    [Fact]
+    [Test]
     public async Task Requests_SendCurvyUserAgent()
     {
         var h = new FakeHandler(r => r.RequestUri!.AbsolutePath.EndsWith("INDEX.md") ? Ok(IndexMd) : Ok(PeqTxt));
         var c = Client(h);
         var list = await c.GetIndexAsync();
         await c.FetchCorrectionAsync(list[0]);
-        Assert.Equal(2, h.Requests.Count);
-        Assert.All(h.Requests, r => Assert.StartsWith("Curvy/", r.Headers.UserAgent.ToString()));
+        await Assert.That(h.Requests.Count).IsEqualTo(2);
+        foreach (var r in h.Requests)
+            await Assert.That(r.Headers.UserAgent.ToString()).StartsWith("Curvy/");
     }
 }

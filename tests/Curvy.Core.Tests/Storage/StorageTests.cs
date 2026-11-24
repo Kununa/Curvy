@@ -1,12 +1,13 @@
+using System.IO;
 using System.Collections.Immutable;
 using Curvy.Core.Filters;
 using Curvy.Core.Model;
 using Curvy.Core.Storage;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Storage;
 
-[Collection(EnvCollection.Name)]
+[NotInParallel("env")]
 public sealed class StorageTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "curvy-tests-" + Guid.NewGuid().ToString("N"));
@@ -14,54 +15,54 @@ public sealed class StorageTests : IDisposable
     public StorageTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
-    [Fact]
-    public void Settings_Corrupt_IsRenamedToBad_AndOverwritesOlderBad()
+    [Test]
+    public async Task Settings_Corrupt_IsRenamedToBad_AndOverwritesOlderBad()
     {
         var store = new SettingsStore(_dir);
         File.WriteAllText(Path.Combine(_dir, "settings.json.bad"), "older");
         File.WriteAllText(Path.Combine(_dir, "settings.json"), "{ not json");
 
-        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
+        await Assert.That(store.Load().StartWithWindows).IsEqualTo(CurvySettings.Default.StartWithWindows);
 
-        Assert.False(File.Exists(Path.Combine(_dir, "settings.json")));
-        Assert.Equal("{ not json", File.ReadAllText(Path.Combine(_dir, "settings.json.bad")));
+        await Assert.That(File.Exists(Path.Combine(_dir, "settings.json"))).IsFalse();
+        await Assert.That(File.ReadAllText(Path.Combine(_dir, "settings.json.bad"))).IsEqualTo("{ not json");
     }
 
-    [Fact]
-    public void Profiles_Corrupt_IsRenamedToBad()
+    [Test]
+    public async Task Profiles_Corrupt_IsRenamedToBad()
     {
         var store = new ProfileStore(_dir);
         var id = Guid.NewGuid();
         File.WriteAllText(Path.Combine(_dir, id + ".json"), "garbage");
 
-        Assert.Empty(store.LoadAll());
+        await Assert.That(store.LoadAll()).IsEmpty();
 
-        Assert.False(File.Exists(Path.Combine(_dir, id + ".json")));
-        Assert.Equal("garbage", File.ReadAllText(Path.Combine(_dir, id + ".json.bad")));
+        await Assert.That(File.Exists(Path.Combine(_dir, id + ".json"))).IsFalse();
+        await Assert.That(File.ReadAllText(Path.Combine(_dir, id + ".json.bad"))).IsEqualTo("garbage");
     }
 
-    private static void AssertPreferenceEqual(Preference e, Preference a)
+    private static async Task AssertPreferenceEqual(Preference e, Preference a)
     {
-        Assert.Equal(e.Tone, a.Tone);
-        Assert.Equal(e.Enabled, a.Enabled);
-        Assert.True(e.Bands.SequenceEqual(a.Bands));
+        await Assert.That(a.Tone).IsEqualTo(e.Tone);
+        await Assert.That(a.Enabled).IsEqualTo(e.Enabled);
+        await Assert.That(e.Bands.SequenceEqual(a.Bands)).IsTrue();
     }
 
-    private static void AssertProfileEqual(Profile e, Profile a)
+    private static async Task AssertProfileEqual(Profile e, Profile a)
     {
-        Assert.Equal(e.Id, a.Id);
-        Assert.Equal(e.Name, a.Name);
-        Assert.Equal(e.AutoEqEnabled, a.AutoEqEnabled);
-        Assert.Equal(e.IgnoreUniversal, a.IgnoreUniversal);
-        Assert.Equal(e.Created, a.Created);
-        Assert.Equal(e.Modified, a.Modified);
-        Assert.Equal(e.AutoEq is null, a.AutoEq is null);
+        await Assert.That(a.Id).IsEqualTo(e.Id);
+        await Assert.That(a.Name).IsEqualTo(e.Name);
+        await Assert.That(a.AutoEqEnabled).IsEqualTo(e.AutoEqEnabled);
+        await Assert.That(a.IgnoreUniversal).IsEqualTo(e.IgnoreUniversal);
+        await Assert.That(a.Created).IsEqualTo(e.Created);
+        await Assert.That(a.Modified).IsEqualTo(e.Modified);
+        await Assert.That(a.AutoEq is null).IsEqualTo(e.AutoEq is null);
         if (e.AutoEq is not null)
         {
-            Assert.Equal(e.AutoEq.Source, a.AutoEq!.Source);
-            Assert.True(e.AutoEq.Filters.SequenceEqual(a.AutoEq.Filters));
+            await Assert.That(a.AutoEq!.Source).IsEqualTo(e.AutoEq.Source);
+            await Assert.That(e.AutoEq.Filters.SequenceEqual(a.AutoEq.Filters)).IsTrue();
         }
-        AssertPreferenceEqual(e.Preference, a.Preference);
+        await AssertPreferenceEqual(e.Preference, a.Preference);
     }
 
     private static Profile Sample(string name = "HD 600")
@@ -75,28 +76,28 @@ public sealed class StorageTests : IDisposable
             DateTimeOffset.Parse("2026-02-01T00:00:00+00:00"), DateTimeOffset.Parse("2026-03-01T00:00:00+00:00"));
     }
 
-    [Fact]
-    public void Profile_RoundTrips()
+    [Test]
+    public async Task Profile_RoundTrips()
     {
         var store = new ProfileStore(_dir);
         var p = Sample();
         store.Save(p);
-        var loaded = Assert.Single(store.LoadAll());
-        AssertProfileEqual(p, loaded);
-        Assert.Contains("\"type\": \"LowShelf\"", File.ReadAllText(Path.Combine(_dir, p.Id + ".json")));
+        var loaded = await Assert.That(store.LoadAll()).HasSingleItem();
+        await AssertProfileEqual(p, loaded);
+        await Assert.That(File.ReadAllText(Path.Combine(_dir, p.Id + ".json"))).Contains("\"type\": \"LowShelf\"");
     }
 
-    [Fact]
-    public void Profile_WithoutAutoEq_RoundTrips()
+    [Test]
+    public async Task Profile_WithoutAutoEq_RoundTrips()
     {
         var store = new ProfileStore(_dir);
         var p = Profile.New("Plain");
         store.Save(p);
-        AssertProfileEqual(p, Assert.Single(store.LoadAll()));
+        await Assert.That(store.LoadAll()).HasSingleItem();
     }
 
-    [Fact]
-    public void LoadAll_SkipsCorruptAndFutureVersionFiles()
+    [Test]
+    public async Task LoadAll_SkipsCorruptAndFutureVersionFiles()
     {
         var store = new ProfileStore(_dir);
         var p = Sample();
@@ -104,38 +105,38 @@ public sealed class StorageTests : IDisposable
         File.WriteAllText(Path.Combine(_dir, "bad.json"), "{not json");
         File.WriteAllText(Path.Combine(_dir, "future.json"), "{ \"schemaVersion\": 99, \"profile\": {} }");
         var all = store.LoadAll();
-        AssertProfileEqual(p, Assert.Single(all));
+        await Assert.That(all).HasSingleItem();
     }
 
-    [Fact]
-    public void LoadAll_MissingDir_ReturnsEmpty() =>
-        Assert.Empty(new ProfileStore(Path.Combine(_dir, "nope")).LoadAll());
+    [Test]
+    public async Task LoadAll_MissingDir_ReturnsEmpty() =>
+        await Assert.That(new ProfileStore(Path.Combine(_dir, "nope")).LoadAll()).IsEmpty();
 
-    [Fact]
-    public void Delete_RemovesFile()
+    [Test]
+    public async Task Delete_RemovesFile()
     {
         var store = new ProfileStore(_dir);
         var p = Sample();
         store.Save(p);
         store.Delete(p.Id);
-        Assert.False(File.Exists(Path.Combine(_dir, p.Id + ".json")));
-        Assert.Empty(store.LoadAll());
+        await Assert.That(File.Exists(Path.Combine(_dir, p.Id + ".json"))).IsFalse();
+        await Assert.That(store.LoadAll()).IsEmpty();
         store.Delete(p.Id); // idempotent
     }
 
-    [Fact]
-    public void Settings_MissingOrCorrupt_ReturnsDefault()
+    [Test]
+    public async Task Settings_MissingOrCorrupt_ReturnsDefault()
     {
         var store = new SettingsStore(_dir);
-        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
+        await Assert.That(store.Load().StartWithWindows).IsEqualTo(CurvySettings.Default.StartWithWindows);
         File.WriteAllText(Path.Combine(_dir, "settings.json"), "{garbage");
-        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
+        await Assert.That(store.Load().StartWithWindows).IsEqualTo(CurvySettings.Default.StartWithWindows);
         File.WriteAllText(Path.Combine(_dir, "settings.json"), "{ \"schemaVersion\": 2, \"settings\": { \"masterEnabled\": false } }");
-        Assert.Equal(CurvySettings.Default.StartWithWindows, store.Load().StartWithWindows);
+        await Assert.That(store.Load().StartWithWindows).IsEqualTo(CurvySettings.Default.StartWithWindows);
     }
 
-    [Fact]
-    public void Settings_RoundTrips()
+    [Test]
+    public async Task Settings_RoundTrips()
     {
         var store = new SettingsStore(_dir);
         var s = new CurvySettings(1, Guid.NewGuid(), false,
@@ -143,18 +144,18 @@ public sealed class StorageTests : IDisposable
             1.5, true, ["Include foo.txt", "Preamp: 3 dB"], FirstRunShown: true, IntegrationPaused: true);
         store.Save(s);
         var l = store.Load();
-        Assert.Equal(s.ActiveProfileId, l.ActiveProfileId);
-        Assert.Equal(s.MasterEnabled, l.MasterEnabled);
-        Assert.Equal(s.ExtraHeadroomDb, l.ExtraHeadroomDb);
-        Assert.Equal(s.StartWithWindows, l.StartWithWindows);
-        Assert.True(s.DisabledForeignLines.SequenceEqual(l.DisabledForeignLines));
-        Assert.True(l.FirstRunShown);
-        Assert.True(l.IntegrationPaused);
-        AssertPreferenceEqual(s.Universal, l.Universal);
+        await Assert.That(l.ActiveProfileId).IsEqualTo(s.ActiveProfileId);
+        await Assert.That(l.MasterEnabled).IsEqualTo(s.MasterEnabled);
+        await Assert.That(l.ExtraHeadroomDb).IsEqualTo(s.ExtraHeadroomDb);
+        await Assert.That(l.StartWithWindows).IsEqualTo(s.StartWithWindows);
+        await Assert.That(s.DisabledForeignLines.SequenceEqual(l.DisabledForeignLines)).IsTrue();
+        await Assert.That(l.FirstRunShown).IsTrue();
+        await Assert.That(l.IntegrationPaused).IsTrue();
+        await AssertPreferenceEqual(s.Universal, l.Universal);
     }
 
-    [Fact]
-    public void Settings_MissingNewerProperties_LoadWithDefaults()
+    [Test]
+    public async Task Settings_MissingNewerProperties_LoadWithDefaults()
     {
         // A settings.json from before firstRunShown / universal / disabledForeignLines existed.
         var id = Guid.NewGuid();
@@ -163,43 +164,41 @@ public sealed class StorageTests : IDisposable
               "masterEnabled": false, "extraHeadroomDb": 2, "startWithWindows": true } }
             """);
         var l = new SettingsStore(_dir).Load();
-        Assert.Equal(id, l.ActiveProfileId);
-        Assert.False(l.MasterEnabled);
-        Assert.Equal(2, l.ExtraHeadroomDb);
-        Assert.True(l.StartWithWindows);
-        Assert.False(l.FirstRunShown);
-        Assert.False(l.IntegrationPaused);
-        Assert.Same(Preference.Empty, l.Universal);
-        Assert.NotNull(l.DisabledForeignLines);
-        Assert.Empty(l.DisabledForeignLines);
+        await Assert.That(l.ActiveProfileId).IsEqualTo(id);
+        await Assert.That(l.MasterEnabled).IsFalse();
+        await Assert.That(l.ExtraHeadroomDb).IsEqualTo(2);
+        await Assert.That(l.StartWithWindows).IsTrue();
+        await Assert.That(l.FirstRunShown).IsFalse();
+        await Assert.That(l.IntegrationPaused).IsFalse();
+        await Assert.That(l.Universal).IsSameReferenceAs(Preference.Empty);
+        await Assert.That(l.DisabledForeignLines).IsNotNull();
+        await Assert.That(l.DisabledForeignLines).IsEmpty();
     }
 
-    [Fact]
-    public void Settings_NullUniversalAndLines_AreNormalized()
+    [Test]
+    public async Task Settings_NullUniversalAndLines_AreNormalized()
     {
         File.WriteAllText(Path.Combine(_dir, "settings.json"), """
             { "schemaVersion": 1, "settings": { "schemaVersion": 1, "masterEnabled": true,
               "universal": null, "disabledForeignLines": null } }
             """);
         var l = new SettingsStore(_dir).Load();
-        Assert.Same(Preference.Empty, l.Universal);
-        Assert.Empty(l.DisabledForeignLines);
+        await Assert.That(l.Universal).IsSameReferenceAs(Preference.Empty);
+        await Assert.That(l.DisabledForeignLines).IsEmpty();
     }
 
-    [Fact]
-    public void CurvyPaths_Root_HonoursEnvOverride()
+    [Test]
+    public async Task CurvyPaths_Root_HonoursEnvOverride()
     {
         var old = Environment.GetEnvironmentVariable(CurvyPaths.EnvOverride);
         try
         {
             Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, _dir);
-            Assert.Equal(_dir, CurvyPaths.Root);
-            Assert.Equal(Path.Combine(_dir, "profiles"), CurvyPaths.ProfilesDir);
+            await Assert.That(CurvyPaths.Root).IsEqualTo(_dir);
+            await Assert.That(CurvyPaths.ProfilesDir).IsEqualTo(Path.Combine(_dir, "profiles"));
 
             Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, null);
-            Assert.Equal(
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Curvy"),
-                CurvyPaths.Root);
+            await Assert.That(CurvyPaths.Root).IsEqualTo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Curvy"));
         }
         finally { Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, old); }
     }

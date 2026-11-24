@@ -1,12 +1,12 @@
 using Curvy.Core.Engine;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Engine;
 
 public class KeyedPendingTests
 {
-    [Fact]
-    public void SameKey_LatestWins_OtherKeysKept_InFirstInsertionOrder()
+    [Test]
+    public async Task SameKey_LatestWins_OtherKeysKept_InFirstInsertionOrder()
     {
         var log = new List<string>();
         var p = new KeyedPending();
@@ -15,33 +15,33 @@ public class KeyedPendingTests
         p.Set("profile:a", () => log.Add("a2"));
         p.Set("profile:b", () => log.Add("b"));
 
-        Assert.True(p.Contains("profile:a"));
-        Assert.False(p.Contains("settings"));
+        await Assert.That(p.Contains("profile:a")).IsTrue();
+        await Assert.That(p.Contains("settings")).IsFalse();
         foreach (var action in p.TakeAll()) action();
 
-        Assert.Equal(["a2", "u", "b"], log);
-        Assert.True(p.IsEmpty);
+        await Assert.That(log).IsEquivalentTo(["a2", "u", "b"], CollectionOrdering.Matching);
+        await Assert.That(p.IsEmpty).IsTrue();
     }
 
-    [Fact]
-    public void TakeAll_ClearsBeforeRunning_SoReentrantSetIsKeptForNextRound()
+    [Test]
+    public async Task TakeAll_ClearsBeforeRunning_SoReentrantSetIsKeptForNextRound()
     {
         var p = new KeyedPending();
         var ran = 0;
         p.Set("x", () => { ran++; p.Set("x", () => ran += 10); });
 
         foreach (var action in p.TakeAll()) action();
-        Assert.Equal(1, ran);
-        Assert.False(p.IsEmpty);
+        await Assert.That(ran).IsEqualTo(1);
+        await Assert.That(p.IsEmpty).IsFalse();
 
         foreach (var action in p.TakeAll()) action();
-        Assert.Equal(11, ran);
-        Assert.True(p.IsEmpty);
+        await Assert.That(ran).IsEqualTo(11);
+        await Assert.That(p.IsEmpty).IsTrue();
     }
 
-    [Fact]
-    public void Empty_TakeAll_ReturnsNothing()
+    [Test]
+    public async Task Empty_TakeAll_ReturnsNothing()
     {
-        Assert.Empty(new KeyedPending().TakeAll());
+        await Assert.That(new KeyedPending().TakeAll()).IsEmpty();
     }
 }

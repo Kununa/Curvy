@@ -1,6 +1,6 @@
 using Curvy.Core.SystemIntegration;
 using Microsoft.Win32;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.SystemIntegration;
 
@@ -30,59 +30,59 @@ public sealed class StartupRegistrationTests : IDisposable
         return run?.GetValue(StartupRegistration.ValueName);
     }
 
-    [Fact]
-    public void Enable_WritesQuotedExeWithTrayArg()
+    [Test]
+    public async Task Enable_WritesQuotedExeWithTrayArg()
     {
         new StartupRegistration(_root).Enable(@"C:\Apps\Curvy\Curvy.App.exe");
-        Assert.Equal("\"C:\\Apps\\Curvy\\Curvy.App.exe\" --tray", RunValue());
+        await Assert.That(RunValue()).IsEqualTo("\"C:\\Apps\\Curvy\\Curvy.App.exe\" --tray");
     }
 
-    [Fact]
-    public void Disable_RemovesValue()
+    [Test]
+    public async Task Disable_RemovesValue()
     {
         var reg = new StartupRegistration(_root);
         reg.Enable(@"C:\Curvy.exe");
         reg.Disable();
-        Assert.Null(RunValue());
+        await Assert.That(RunValue()).IsNull();
         reg.Disable(); // idempotent
     }
 
-    [Fact]
-    public void IsEnabled_ReflectsValue()
+    [Test]
+    public async Task IsEnabled_ReflectsValue()
     {
         var reg = new StartupRegistration(_root);
-        Assert.False(reg.IsEnabled());
+        await Assert.That(reg.IsEnabled()).IsFalse();
         reg.Enable(@"C:\Curvy.exe");
-        Assert.True(reg.IsEnabled());
+        await Assert.That(reg.IsEnabled()).IsTrue();
         reg.Disable();
-        Assert.False(reg.IsEnabled());
+        await Assert.That(reg.IsEnabled()).IsFalse();
     }
 
-    [Fact]
-    public void GetRegisteredExe_ParsesQuotedPath_AndNullWhenAbsent()
+    [Test]
+    public async Task GetRegisteredExe_ParsesQuotedPath_AndNullWhenAbsent()
     {
         var reg = new StartupRegistration(_root);
-        Assert.Null(reg.GetRegisteredExe());
+        await Assert.That(reg.GetRegisteredExe()).IsNull();
         reg.Enable(@"C:\Program Files\Curvy\Curvy.exe");
-        Assert.Equal(@"C:\Program Files\Curvy\Curvy.exe", reg.GetRegisteredExe());
+        await Assert.That(reg.GetRegisteredExe()).IsEqualTo(@"C:\Program Files\Curvy\Curvy.exe");
     }
 }
 
 public sealed class StartupRegistrationShouldRefreshTests
 {
-    [Fact]
-    public void NotRegistered_NoRefresh() =>
-        Assert.False(StartupRegistration.ShouldRefresh(null, @"C:\new\Curvy.exe", _ => true));
+    [Test]
+    public async Task NotRegistered_NoRefresh() =>
+        await Assert.That(StartupRegistration.ShouldRefresh(null, @"C:\new\Curvy.exe", _ => true)).IsFalse();
 
-    [Fact]
-    public void RegisteredExeStillExists_NoRefresh() =>
-        Assert.False(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", _ => true));
+    [Test]
+    public async Task RegisteredExeStillExists_NoRefresh() =>
+        await Assert.That(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", _ => true)).IsFalse();
 
-    [Fact]
-    public void RegisteredExeMissing_Refresh() =>
-        Assert.True(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", p => p == @"C:\new\Curvy.exe"));
+    [Test]
+    public async Task RegisteredExeMissing_Refresh() =>
+        await Assert.That(StartupRegistration.ShouldRefresh(@"C:\old\Curvy.exe", @"C:\new\Curvy.exe", p => p == @"C:\new\Curvy.exe")).IsTrue();
 
-    [Fact]
-    public void RegisteredIsCurrent_NoRefresh() =>
-        Assert.False(StartupRegistration.ShouldRefresh(@"C:\a\Curvy.exe", @"C:\a\Curvy.exe", _ => false));
+    [Test]
+    public async Task RegisteredIsCurrent_NoRefresh() =>
+        await Assert.That(StartupRegistration.ShouldRefresh(@"C:\a\Curvy.exe", @"C:\a\Curvy.exe", _ => false)).IsFalse();
 }

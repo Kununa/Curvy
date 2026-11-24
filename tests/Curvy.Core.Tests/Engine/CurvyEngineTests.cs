@@ -1,10 +1,11 @@
+using System.IO;
 using System.Collections.Immutable;
 using Curvy.Core.Apo;
 using Curvy.Core.Engine;
 using Curvy.Core.Filters;
 using Curvy.Core.Model;
 using Curvy.Core.Storage;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Engine;
 
@@ -32,19 +33,19 @@ public sealed class CurvyEngineTests : IDisposable
     private static Profile WithFilter(string name, double hz) =>
         Profile.New(name) with { Preference = new Preference(new ToneControls(), [new Filter(FilterType.Peaking, hz, 3, 1)]) };
 
-    [Fact]
-    public void Activate_WritesChainOfThatProfile()
+    [Test]
+    public async Task Activate_WritesChainOfThatProfile()
     {
         var e = NewEngine();
         var p = WithFilter("A", 1234);
         e.SaveProfile(p);
         e.Activate(p.Id);
-        Assert.Equal(p.Id, e.ActiveProfile!.Id);
-        Assert.Contains("Fc 1234 Hz", Output());
+        await Assert.That(e.ActiveProfile!.Id).IsEqualTo(p.Id);
+        await Assert.That(Output()).Contains("Fc 1234 Hz");
     }
 
-    [Fact]
-    public void Activate_Null_WritesUniversalOnly()
+    [Test]
+    public async Task Activate_Null_WritesUniversalOnly()
     {
         var e = NewEngine();
         var p = WithFilter("A", 1234);
@@ -52,71 +53,71 @@ public sealed class CurvyEngineTests : IDisposable
         e.SetUniversal(new Preference(new ToneControls(), [new Filter(FilterType.Peaking, 777, 2, 1)]));
         e.Activate(p.Id);
         e.Activate(null);
-        Assert.Null(e.ActiveProfile);
+        await Assert.That(e.ActiveProfile).IsNull();
         var o = Output();
-        Assert.Contains("Fc 777 Hz", o);
-        Assert.DoesNotContain("Fc 1234 Hz", o);
+        await Assert.That(o).Contains("Fc 777 Hz");
+        await Assert.That(o).DoesNotContain("Fc 1234 Hz");
     }
 
-    [Fact]
-    public void MasterOff_WritesBypassedFile()
+    [Test]
+    public async Task MasterOff_WritesBypassedFile()
     {
         var e = NewEngine();
         e.SetMasterEnabled(false);
-        Assert.Contains("# EQ off", Output());
-        Assert.True(e.Current.Bypassed);
+        await Assert.That(Output()).Contains("# EQ off");
+        await Assert.That(e.Current.Bypassed).IsTrue();
     }
 
-    [Fact]
-    public void DeleteActive_ClearsActive_AndRewrites()
+    [Test]
+    public async Task DeleteActive_ClearsActive_AndRewrites()
     {
         var e = NewEngine();
         var p = WithFilter("A", 1234);
         e.SaveProfile(p);
         e.Activate(p.Id);
         e.DeleteProfile(p.Id);
-        Assert.Null(e.Settings.ActiveProfileId);
-        Assert.Null(e.ActiveProfile);
-        Assert.DoesNotContain("Fc 1234 Hz", Output());
-        Assert.Empty(e.Profiles);
+        await Assert.That(e.Settings.ActiveProfileId).IsNull();
+        await Assert.That(e.ActiveProfile).IsNull();
+        await Assert.That(Output()).DoesNotContain("Fc 1234 Hz");
+        await Assert.That(e.Profiles).IsEmpty();
     }
 
-    [Fact]
-    public void Apply_AddsIncludeOnce()
+    [Test]
+    public async Task Apply_AddsIncludeOnce()
     {
         var e = NewEngine();
         e.Apply();
         e.Apply();
         var n = File.ReadAllLines(NewApo().ConfigTxtPath).Count(l => l == ConfigTxt.CurvyIncludeLine);
-        Assert.Equal(1, n);
+        await Assert.That(n).IsEqualTo(1);
     }
 
-    [Fact]
-    public void DisableForeignLines_BacksUpFirst_AndRemembersText()
+    [Test]
+    public async Task DisableForeignLines_BacksUpFirst_AndRemembersText()
     {
         var e = NewEngine();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         e.DisableForeignLines([Line(idx)]);
-        Assert.True(File.Exists(NewApo().ConfigTxtPath + ".curvy-backup"));
-        Assert.Contains("Include: peace.txt", File.ReadAllText(NewApo().ConfigTxtPath + ".curvy-backup"));
-        Assert.Contains("# [Curvy] Include: peace.txt", File.ReadAllText(NewApo().ConfigTxtPath));
-        Assert.Equal(["Include: peace.txt"], e.Settings.DisabledForeignLines);
-        Assert.Equal(["Include: peace.txt"], new SettingsStore(SetDir).Load().DisabledForeignLines);
+        await Assert.That(File.Exists(NewApo().ConfigTxtPath + ".curvy-backup")).IsTrue();
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath + ".curvy-backup")).Contains("Include: peace.txt");
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).Contains("# [Curvy] Include: peace.txt");
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
+        await Assert.That(new SettingsStore(SetDir).Load().DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void CheckAndRepair_ReAddsMissingInclude()
+    [Test]
+    public async Task CheckAndRepair_ReAddsMissingInclude()
     {
         var e = NewEngine();
         e.Apply();
         File.WriteAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
         var h = e.CheckAndRepair();
-        Assert.True(h.RepairedInclude);
-        Assert.Contains(ConfigTxt.CurvyIncludeLine, File.ReadAllText(NewApo().ConfigTxtPath));
+        await Assert.That(h.RepairedInclude).IsTrue();
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).Contains(ConfigTxt.CurvyIncludeLine);
     }
 
-    [Fact]
-    public void CheckAndRepair_ReportsReEnabledLine_WithoutDisablingIt()
+    [Test]
+    public async Task CheckAndRepair_ReportsReEnabledLine_WithoutDisablingIt()
     {
         var e = NewEngine();
         e.Apply();
@@ -124,15 +125,15 @@ public sealed class CurvyEngineTests : IDisposable
         e.DisableForeignLines([Line(idx)]);
         File.AppendAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
         var h = e.CheckAndRepair();
-        Assert.Single(h.ReEnabledLines);
-        Assert.Equal("Include: peace.txt", h.ReEnabledLines[0].Text);
-        Assert.Contains(h.ActiveEqLikeForeignLines, l => l.Text == "Include: peace.txt");
+        await Assert.That(h.ReEnabledLines).HasSingleItem();
+        await Assert.That(h.ReEnabledLines[0].Text).IsEqualTo("Include: peace.txt");
+        await Assert.That(h.ActiveEqLikeForeignLines.Any(l => l.Text == "Include: peace.txt")).IsTrue();
         var active = NewApo().ReadConfigTxt().Count(l => l.Kind == ConfigLineKind.Active && l.Text == "Include: peace.txt");
-        Assert.Equal(1, active);
+        await Assert.That(active).IsEqualTo(1);
     }
 
-    [Fact]
-    public void Settings_SurviveNewEngineInstance()
+    [Test]
+    public async Task Settings_SurviveNewEngineInstance()
     {
         var e = NewEngine();
         var p = WithFilter("A", 1234);
@@ -140,12 +141,12 @@ public sealed class CurvyEngineTests : IDisposable
         e.Activate(p.Id);
         e.SetExtraHeadroom(50);
         var e2 = NewEngine();
-        Assert.Equal(p.Id, e2.ActiveProfile!.Id);
-        Assert.Equal(12, e2.Settings.ExtraHeadroomDb);
+        await Assert.That(e2.ActiveProfile!.Id).IsEqualTo(p.Id);
+        await Assert.That(e2.Settings.ExtraHeadroomDb).IsEqualTo(12);
     }
 
-    [Fact]
-    public void Apply_RecordsLastError_WhenConfigDirMissing()
+    [Test]
+    public async Task Apply_RecordsLastError_WhenConfigDirMissing()
     {
         var blocker = Path.Combine(_root, "blocker");
         File.WriteAllText(blocker, "x"); // a file where a directory is needed: not creatable
@@ -154,12 +155,12 @@ public sealed class CurvyEngineTests : IDisposable
         var raised = 0;
         e.Changed += (_, _) => raised++;
         e.Apply();
-        Assert.NotNull(e.LastError);
-        Assert.Equal(1, raised);
+        await Assert.That(e.LastError).IsNotNull();
+        await Assert.That(raised).IsEqualTo(1);
     }
 
-    [Fact]
-    public void DisableForeignLines_RejectsNonActiveOrOutOfRange_WithoutWriting()
+    [Test]
+    public async Task DisableForeignLines_RejectsNonActiveOrOutOfRange_WithoutWriting()
     {
         var e = NewEngine();
         e.Apply();
@@ -167,49 +168,49 @@ public sealed class CurvyEngineTests : IDisposable
         var includeIdx = NewApo().ReadConfigTxt().First(l => l.Kind == ConfigLineKind.CurvyInclude).Index;
         var peace = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         Assert.Throws<ArgumentException>(() => e.DisableForeignLines([Line(peace), Line(includeIdx)]));
-        Assert.ThrowsAny<InvalidOperationException>(() =>
-            e.DisableForeignLines([Line(peace), new ConfigLine(99, "Include: x.txt", ConfigLineKind.Active)]));
-        Assert.Equal(before, File.ReadAllText(NewApo().ConfigTxtPath));
-        Assert.Empty(e.Settings.DisabledForeignLines);
+        await Assert.That(() =>
+            e.DisableForeignLines([Line(peace), new ConfigLine(99, "Include: x.txt", ConfigLineKind.Active)])).Throws<InvalidOperationException>();
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).IsEqualTo(before);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
     }
 
     // A deterministic mid-loop failure cannot be injected (indices are validated up front and
     // SetLineDisabled re-reads the file); the finally-persist path is covered by the success case.
-    [Fact]
-    public void DisableForeignLines_RecordsEachLineAndRaisesChanged()
+    [Test]
+    public async Task DisableForeignLines_RecordsEachLineAndRaisesChanged()
     {
         File.WriteAllText(NewApo().ConfigTxtPath, "Include: a.txt\r\nInclude: b.txt\r\n");
         var e = NewEngine();
         var raised = 0;
         e.Changed += (_, _) => raised++;
         e.DisableForeignLines([Line(0), Line(1)]);
-        Assert.Equal(["Include: a.txt", "Include: b.txt"], e.Settings.DisabledForeignLines);
-        Assert.Equal(1, raised);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: a.txt", "Include: b.txt"], CollectionOrdering.Matching);
+        await Assert.That(raised).IsEqualTo(1);
     }
 
-    [Fact]
-    public void CheckAndRepair_RecordsLastError_OnIoFailure()
+    [Test]
+    public async Task CheckAndRepair_RecordsLastError_OnIoFailure()
     {
         var e = NewEngine();
         using var hold = new FileStream(NewApo().ConfigTxtPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         var h = e.CheckAndRepair();
-        Assert.False(h.RepairedInclude);
-        Assert.Empty(h.ReEnabledLines);
-        Assert.Empty(h.ActiveEqLikeForeignLines);
-        Assert.NotNull(e.LastError);
+        await Assert.That(h.RepairedInclude).IsFalse();
+        await Assert.That(h.ReEnabledLines).IsEmpty();
+        await Assert.That(h.ActiveEqLikeForeignLines).IsEmpty();
+        await Assert.That(e.LastError).IsNotNull();
     }
 
-    [Fact]
-    public void Activate_UnknownId_TreatedAsNoProfile()
+    [Test]
+    public async Task Activate_UnknownId_TreatedAsNoProfile()
     {
         var e = NewEngine();
         e.Activate(Guid.NewGuid());
-        Assert.Null(e.Settings.ActiveProfileId);
-        Assert.Null(new SettingsStore(SetDir).Load().ActiveProfileId);
+        await Assert.That(e.Settings.ActiveProfileId).IsNull();
+        await Assert.That(new SettingsStore(SetDir).Load().ActiveProfileId).IsNull();
     }
 
-    [Fact]
-    public void SaveProfile_Inactive_DoesNotRewriteOutput_ButRaisesChanged()
+    [Test]
+    public async Task SaveProfile_Inactive_DoesNotRewriteOutput_ButRaisesChanged()
     {
         var e = NewEngine();
         e.Apply();
@@ -218,30 +219,30 @@ public sealed class CurvyEngineTests : IDisposable
         var raised = 0;
         e.Changed += (_, _) => raised++;
         e.SaveProfile(WithFilter("B", 500));
-        Assert.Equal(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(path));
-        Assert.Equal(1, raised);
+        await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        await Assert.That(raised).IsEqualTo(1);
     }
 
-    [Fact]
-    public void Profiles_SortedByName_IgnoringCase()
+    [Test]
+    public async Task Profiles_SortedByName_IgnoringCase()
     {
         var e = NewEngine();
         e.SaveProfile(WithFilter("charlie", 1000));
         e.SaveProfile(WithFilter("Alpha", 1000));
         e.SaveProfile(WithFilter("bravo", 1000));
-        Assert.Equal(["Alpha", "bravo", "charlie"], e.Profiles.Select(p => p.Name));
+        await Assert.That(e.Profiles.Select(p => p.Name)).IsEquivalentTo(["Alpha", "bravo", "charlie"], CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void SetExtraHeadroom_ClampsNegativeToZero()
+    [Test]
+    public async Task SetExtraHeadroom_ClampsNegativeToZero()
     {
         var e = NewEngine();
         e.SetExtraHeadroom(-3);
-        Assert.Equal(0, e.Settings.ExtraHeadroomDb);
+        await Assert.That(e.Settings.ExtraHeadroomDb).IsEqualTo(0);
     }
 
-    [Fact]
-    public void SetFirstRunShown_Persists_WithoutRewritingOutput()
+    [Test]
+    public async Task SetFirstRunShown_Persists_WithoutRewritingOutput()
     {
         var e = NewEngine();
         e.Apply();
@@ -251,73 +252,73 @@ public sealed class CurvyEngineTests : IDisposable
         var raised = 0;
         e.Changed += (_, _) => raised++;
         e.SetFirstRunShown(true);
-        Assert.True(e.Settings.FirstRunShown);
-        Assert.True(new SettingsStore(SetDir).Load().FirstRunShown);
-        Assert.Equal(stamp, File.GetLastWriteTimeUtc(path));
-        Assert.Equal(1, raised);
+        await Assert.That(e.Settings.FirstRunShown).IsTrue();
+        await Assert.That(new SettingsStore(SetDir).Load().FirstRunShown).IsTrue();
+        await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(stamp);
+        await Assert.That(raised).IsEqualTo(1);
     }
 
-    [Fact]
-    public void SetStartWithWindows_Persists()
+    [Test]
+    public async Task SetStartWithWindows_Persists()
     {
         var e = NewEngine();
         e.SetStartWithWindows(true);
-        Assert.True(e.Settings.StartWithWindows);
-        Assert.True(new SettingsStore(SetDir).Load().StartWithWindows);
+        await Assert.That(e.Settings.StartWithWindows).IsTrue();
+        await Assert.That(new SettingsStore(SetDir).Load().StartWithWindows).IsTrue();
         e.SetStartWithWindows(false);
-        Assert.False(new SettingsStore(SetDir).Load().StartWithWindows);
+        await Assert.That(new SettingsStore(SetDir).Load().StartWithWindows).IsFalse();
     }
 
-    [Fact]
-    public void EnableForeignLine_ReEnablesIt_AndForgetsIt()
+    [Test]
+    public async Task EnableForeignLine_ReEnablesIt_AndForgetsIt()
     {
         var e = NewEngine();
         e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         e.DisableForeignLines([Line(idx)]);
         var disabled = NewApo().ReadConfigTxt()[idx];
-        Assert.Equal(ConfigLineKind.CurvyDisabled, disabled.Kind);
+        await Assert.That(disabled.Kind).IsEqualTo(ConfigLineKind.CurvyDisabled);
 
         e.EnableForeignLine(idx, disabled.Text);
 
-        Assert.Equal(ConfigLineKind.Active, NewApo().ReadConfigTxt()[idx].Kind);
-        Assert.Empty(e.Settings.DisabledForeignLines);
-        Assert.Empty(new SettingsStore(SetDir).Load().DisabledForeignLines);
-        Assert.Empty(e.CheckAndRepair().ReEnabledLines); // a deliberate re-enable is not "another app"
+        await Assert.That(NewApo().ReadConfigTxt()[idx].Kind).IsEqualTo(ConfigLineKind.Active);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
+        await Assert.That(new SettingsStore(SetDir).Load().DisabledForeignLines).IsEmpty();
+        await Assert.That(e.CheckAndRepair().ReEnabledLines).IsEmpty(); // a deliberate re-enable is not "another app"
     }
 
-    [Fact]
-    public void EnableForeignLine_Throws_WhenFileChanged()
+    [Test]
+    public async Task EnableForeignLine_Throws_WhenFileChanged()
     {
         var e = NewEngine();
         e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         e.DisableForeignLines([Line(idx)]);
         Assert.Throws<ConfigChangedException>(() => e.EnableForeignLine(idx, "# [Curvy] Include: other.txt"));
-        Assert.Equal(["Include: peace.txt"], e.Settings.DisabledForeignLines);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void ReadConfigLines_And_ConfigTxtPath_ExposeConfig()
+    [Test]
+    public async Task ReadConfigLines_And_ConfigTxtPath_ExposeConfig()
     {
         var e = NewEngine();
-        Assert.Equal(NewApo().ConfigTxtPath, e.ConfigTxtPath);
-        Assert.Equal("Include: peace.txt", e.ReadConfigLines()[0].Text);
+        await Assert.That(e.ConfigTxtPath).IsEqualTo(NewApo().ConfigTxtPath);
+        await Assert.That(e.ReadConfigLines()[0].Text).IsEqualTo("Include: peace.txt");
     }
 
 
-    [Fact]
-    public void RestoreOriginalConfig_ReturnsFalse_WithoutBackup()
+    [Test]
+    public async Task RestoreOriginalConfig_ReturnsFalse_WithoutBackup()
     {
         var e = NewEngine();
-        Assert.False(e.RestoreOriginalConfig());
-        Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(NewApo().ConfigTxtPath));
+        await Assert.That(e.RestoreOriginalConfig()).IsFalse();
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).IsEqualTo("Include: peace.txt\r\n");
     }
 
     // ── Fix round 1 ─────────────────────────────────────────────────────
 
-    [Fact]
-    public void DisableForeignLines_ShiftedLine_Throws_AndLeavesFileUnchanged()
+    [Test]
+    public async Task DisableForeignLines_ShiftedLine_Throws_AndLeavesFileUnchanged()
     {
         var e = NewEngine();
         e.Apply();
@@ -327,34 +328,34 @@ public sealed class CurvyEngineTests : IDisposable
 
         Assert.Throws<ConfigChangedException>(() => e.DisableForeignLines([peace]));
 
-        Assert.Equal(before, File.ReadAllBytes(NewApo().ConfigTxtPath));
-        Assert.Empty(e.Settings.DisabledForeignLines);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, CollectionOrdering.Matching);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
     }
 
-    [Fact]
-    public void CheckAndRepair_RepairDenied_ReportsMissing_WithoutWriting()
+    [Test]
+    public async Task CheckAndRepair_RepairDenied_ReportsMissing_WithoutWriting()
     {
         var e = NewEngine();
         e.Apply();
         File.WriteAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
         var h = e.CheckAndRepair(allowRepair: () => false);
-        Assert.False(h.RepairedInclude);
-        Assert.True(h.IncludeMissing);
-        Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(NewApo().ConfigTxtPath));
+        await Assert.That(h.RepairedInclude).IsFalse();
+        await Assert.That(h.IncludeMissing).IsTrue();
+        await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).IsEqualTo("Include: peace.txt\r\n");
     }
 
-    [Fact]
-    public void CheckAndRepair_RepairAllowed_DoesNotReportMissing()
+    [Test]
+    public async Task CheckAndRepair_RepairAllowed_DoesNotReportMissing()
     {
         var e = NewEngine();
         e.Apply();
         File.WriteAllText(NewApo().ConfigTxtPath, "Include: peace.txt\r\n");
         var asked = 0;
         var h = e.CheckAndRepair(() => { asked++; return true; });
-        Assert.True(h.RepairedInclude);
-        Assert.False(h.IncludeMissing);
-        Assert.Equal(1, asked);
-        Assert.Equal(0, CountAsks(e)); // include present: the guard isn't consulted
+        await Assert.That(h.RepairedInclude).IsTrue();
+        await Assert.That(h.IncludeMissing).IsFalse();
+        await Assert.That(asked).IsEqualTo(1);
+        await Assert.That(CountAsks(e)).IsEqualTo(0); // include present: the guard isn't consulted
 
         static int CountAsks(CurvyEngine engine)
         {
@@ -364,8 +365,8 @@ public sealed class CurvyEngineTests : IDisposable
         }
     }
 
-    [Fact]
-    public void EnableForeignLine_OnReEnabledActiveLine_JustForgetsIt()
+    [Test]
+    public async Task EnableForeignLine_OnReEnabledActiveLine_JustForgetsIt()
     {
         // "Keep it on" for a line another app re-enabled.
         var e = NewEngine();
@@ -375,34 +376,34 @@ public sealed class CurvyEngineTests : IDisposable
         var text = File.ReadAllText(NewApo().ConfigTxtPath)
             .Replace(disabled.Text, "Include: peace.txt");
         File.WriteAllText(NewApo().ConfigTxtPath, text);
-        var reEnabled = Assert.Single(e.CheckAndRepair().ReEnabledLines);
+        var reEnabled = await Assert.That(e.CheckAndRepair().ReEnabledLines).HasSingleItem();
         var before = File.ReadAllBytes(NewApo().ConfigTxtPath);
 
         e.EnableForeignLine(reEnabled.Index, reEnabled.Text);
 
-        Assert.Empty(e.Settings.DisabledForeignLines);
-        Assert.Empty(e.CheckAndRepair().ReEnabledLines);
-        Assert.Equal(before, File.ReadAllBytes(NewApo().ConfigTxtPath));
+        await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
+        await Assert.That(e.CheckAndRepair().ReEnabledLines).IsEmpty();
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void RestoreOriginalConfig_LeavesConfigByteIdentical_AndPauses()
+    [Test]
+    public async Task RestoreOriginalConfig_LeavesConfigByteIdentical_AndPauses()
     {
         var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
         var e = NewEngine();
         e.Apply(); // first config.txt write backs up the original
         e.DisableForeignLines([Peace()]);
 
-        Assert.True(e.RestoreOriginalConfig());
+        await Assert.That(e.RestoreOriginalConfig()).IsTrue();
 
-        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
-        Assert.True(e.Settings.IntegrationPaused);
-        Assert.Empty(e.Settings.DisabledForeignLines);
-        Assert.True(new SettingsStore(SetDir).Load().IntegrationPaused);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(e.Settings.IntegrationPaused).IsTrue();
+        await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
+        await Assert.That(new SettingsStore(SetDir).Load().IntegrationPaused).IsTrue();
     }
 
-    [Fact]
-    public void CheckAndRepair_WhilePaused_DoesNotReAddInclude()
+    [Test]
+    public async Task CheckAndRepair_WhilePaused_DoesNotReAddInclude()
     {
         var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
         var e = NewEngine();
@@ -411,15 +412,15 @@ public sealed class CurvyEngineTests : IDisposable
 
         var h = e.CheckAndRepair();
 
-        Assert.False(h.RepairedInclude);
-        Assert.False(h.IncludeMissing);
-        Assert.Empty(h.ReEnabledLines);
-        Assert.Empty(h.ActiveEqLikeForeignLines);
-        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
+        await Assert.That(h.RepairedInclude).IsFalse();
+        await Assert.That(h.IncludeMissing).IsFalse();
+        await Assert.That(h.ReEnabledLines).IsEmpty();
+        await Assert.That(h.ActiveEqLikeForeignLines).IsEmpty();
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void Apply_WhilePaused_DoesNotTouchConfigTxt()
+    [Test]
+    public async Task Apply_WhilePaused_DoesNotTouchConfigTxt()
     {
         var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
         var e = NewEngine();
@@ -430,13 +431,13 @@ public sealed class CurvyEngineTests : IDisposable
         e.SetMasterEnabled(false); // Mutate -> Apply
         e.Apply();
 
-        Assert.Equal(original, File.ReadAllBytes(NewApo().ConfigTxtPath));
-        Assert.Contains("# EQ off", Output()); // curvy.txt is still written
-        Assert.True(NewEngine().Settings.IntegrationPaused); // survives a restart
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(Output()).Contains("# EQ off"); // curvy.txt is still written
+        await Assert.That(NewEngine().Settings.IntegrationPaused).IsTrue(); // survives a restart
     }
 
-    [Fact]
-    public void Resume_ReAddsInclude_KeepsBackup()
+    [Test]
+    public async Task Resume_ReAddsInclude_KeepsBackup()
     {
         var original = File.ReadAllBytes(NewApo().ConfigTxtPath);
         var e = NewEngine();
@@ -446,17 +447,17 @@ public sealed class CurvyEngineTests : IDisposable
 
         e.ResumeIntegration();
 
-        Assert.False(e.Settings.IntegrationPaused);
-        Assert.False(e.Settings.FirstRunShown); // the first-run check runs again
-        Assert.Contains(NewApo().ReadConfigTxt(), l => l.Kind == ConfigLineKind.CurvyInclude);
-        Assert.Equal(original, File.ReadAllBytes(BackupPath));
+        await Assert.That(e.Settings.IntegrationPaused).IsFalse();
+        await Assert.That(e.Settings.FirstRunShown).IsFalse(); // the first-run check runs again
+        await Assert.That(NewApo().ReadConfigTxt().Any(l => l.Kind == ConfigLineKind.CurvyInclude)).IsTrue();
+        await Assert.That(File.ReadAllBytes(BackupPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void RestoreOriginalConfig_ReturnsFalse_WithoutBackup_AndDoesNotPause()
+    [Test]
+    public async Task RestoreOriginalConfig_ReturnsFalse_WithoutBackup_AndDoesNotPause()
     {
         var e = NewEngine();
-        Assert.False(e.RestoreOriginalConfig());
-        Assert.False(e.Settings.IntegrationPaused);
+        await Assert.That(e.RestoreOriginalConfig()).IsFalse();
+        await Assert.That(e.Settings.IntegrationPaused).IsFalse();
     }
 }

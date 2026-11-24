@@ -1,5 +1,5 @@
 using Curvy.Core.AutoEq;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.AutoEq;
 
@@ -20,66 +20,66 @@ from the same source.
 
     private static IReadOnlyList<AutoEqIndexEntry> Index() => AutoEqIndexParser.Parse(Md);
 
-    [Fact]
-    public void Parse_HandlesParenthesesInNameAndPath()
+    [Test]
+    public async Task Parse_HandlesParenthesesInNameAndPath()
     {
         var e = Index().Single(x => x.Name.StartsWith("1MORE"));
-        Assert.Equal("1MORE Aero (ANC Off)", e.Name);
-        Assert.Equal("GRAS RA0045", e.Rig);
-        Assert.Equal("HypetheSonics", e.Source);
+        await Assert.That(e.Name).IsEqualTo("1MORE Aero (ANC Off)");
+        await Assert.That(e.Rig).IsEqualTo("GRAS RA0045");
+        await Assert.That(e.Source).IsEqualTo("HypetheSonics");
     }
 
-    [Fact]
-    public void Parse_SkipsNonEntryLines() => Assert.Equal(5, Index().Count);
+    [Test]
+    public async Task Parse_SkipsNonEntryLines() => await Assert.That(Index().Count).IsEqualTo(5);
 
-    [Fact]
-    public void Parse_SourceDecoded_RigEmptyWithoutOn()
+    [Test]
+    public async Task Parse_SourceDecoded_RigEmptyWithoutOn()
     {
         var e = Index().First(x => x.Source == "Auriculares Argentina");
-        Assert.Equal("", e.Rig);
+        await Assert.That(e.Rig).IsEqualTo("");
     }
 
-    [Fact]
-    public void ParametricEqUrl_IsEncoded()
+    [Test]
+    public async Task ParametricEqUrl_IsEncoded()
     {
         var e = Index().Single(x => x.Source == "oratory1990");
-        Assert.Equal("oratory1990/over-ear/Beyerdynamic%20DT%20880/Beyerdynamic%20DT%20880%20ParametricEQ.txt", e.ParametricEqRelativeUrl);
+        await Assert.That(e.ParametricEqRelativeUrl).IsEqualTo("oratory1990/over-ear/Beyerdynamic%20DT%20880/Beyerdynamic%20DT%20880%20ParametricEQ.txt");
     }
 
-    [Fact]
-    public void Search_GroupsByName_DefaultIsOratoryThenCrinacle()
+    [Test]
+    public async Task Search_GroupsByName_DefaultIsOratoryThenCrinacle()
     {
         var r = AutoEqSearch.Search(Index(), "dt 880");
-        Assert.Equal("Beyerdynamic DT 880", r[0].Name);
-        Assert.Equal(3, r[0].Results.Count);
-        Assert.Equal("oratory1990", r[0].Results[0].Source);
-        Assert.Equal("Auriculares Argentina", r[0].Results[1].Source);
+        await Assert.That(r[0].Name).IsEqualTo("Beyerdynamic DT 880");
+        await Assert.That(r[0].Results.Count).IsEqualTo(3);
+        await Assert.That(r[0].Results[0].Source).IsEqualTo("oratory1990");
+        await Assert.That(r[0].Results[1].Source).IsEqualTo("Auriculares Argentina");
     }
 
-    [Fact]
-    public void Search_ExactBeforePrefixBeforeTokens()
+    [Test]
+    public async Task Search_ExactBeforePrefixBeforeTokens()
     {
         var r = AutoEqSearch.Search(Index(), "Beyerdynamic DT 880");
-        Assert.Equal(["Beyerdynamic DT 880", "Beyerdynamic DT 880 Black Edition"], r.Select(x => x.Name).ToArray());
+        await Assert.That(r.Select(x => x.Name).ToArray()).IsEquivalentTo(["Beyerdynamic DT 880", "Beyerdynamic DT 880 Black Edition"], CollectionOrdering.Matching);
     }
 
-    [Fact]
-    public void Search_IsCaseAndOrderInsensitive_OnTokens()
+    [Test]
+    public async Task Search_IsCaseAndOrderInsensitive_OnTokens()
     {
         var r = AutoEqSearch.Search(Index(), "880 BEYER");
-        Assert.Equal(2, r.Count);
+        await Assert.That(r.Count).IsEqualTo(2);
     }
 
-    [Fact]
-    public void Search_EmptyQuery_ReturnsEmpty()
+    [Test]
+    public async Task Search_EmptyQuery_ReturnsEmpty()
     {
-        Assert.Empty(AutoEqSearch.Search(Index(), "  "));
-        Assert.Empty(AutoEqSearch.Search(Index(), ""));
+        await Assert.That(AutoEqSearch.Search(Index(), "  ")).IsEmpty();
+        await Assert.That(AutoEqSearch.Search(Index(), "")).IsEmpty();
     }
 
-    [Fact]
-    public void Search_MaxLimitsGroups()
+    [Test]
+    public async Task Search_MaxLimitsGroups()
     {
-        Assert.Single(AutoEqSearch.Search(Index(), "880", 1));
+        await Assert.That(AutoEqSearch.Search(Index(), "880", 1)).HasSingleItem();
     }
 }

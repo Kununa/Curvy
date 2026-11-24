@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Curvy.Core.Chain;
 using Curvy.Core.Filters;
 using Curvy.Core.Model;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Chain;
 
@@ -26,74 +27,74 @@ public class EqChainTests
     static CurvySettings MakeSettings() =>
         CurvySettings.Default with { Universal = new Preference(new ToneControls(), [U], true) };
 
-    [Fact]
-    public void Chain_Order_AutoEq_Profile_Universal()
+    [Test]
+    public async Task Chain_Order_AutoEq_Profile_Universal()
     {
         var r = EqChain.Build(MakeProfile(), MakeSettings());
-        Assert.Equal([A, P, U], r.Filters);
-        Assert.False(r.Bypassed);
+        await Assert.That(r.Filters).IsEquivalentTo([A, P, U], CollectionOrdering.Matching);
+        await Assert.That(r.Bypassed).IsFalse();
     }
 
-    [Fact]
-    public void Chain_IgnoreUniversal_DropsUniversal()
+    [Test]
+    public async Task Chain_IgnoreUniversal_DropsUniversal()
     {
         var r = EqChain.Build(MakeProfile(ignoreUniversal: true), MakeSettings());
-        Assert.Equal([A, P], r.Filters);
-        Assert.Empty(EqChain.Layer(MakeProfile(ignoreUniversal: true), MakeSettings(), ChainLayer.Universal));
+        await Assert.That(r.Filters).IsEquivalentTo([A, P], CollectionOrdering.Matching);
+        await Assert.That(EqChain.Layer(MakeProfile(ignoreUniversal: true), MakeSettings(), ChainLayer.Universal)).IsEmpty();
     }
 
-    [Fact]
-    public void Chain_AutoEqDisabled_DropsAutoEq()
+    [Test]
+    public async Task Chain_AutoEqDisabled_DropsAutoEq()
     {
         var r = EqChain.Build(MakeProfile(autoEqEnabled: false), MakeSettings());
-        Assert.Equal([P, U], r.Filters);
-        Assert.Empty(EqChain.Layer(MakeProfile(autoEqEnabled: false), MakeSettings(), ChainLayer.AutoEq));
+        await Assert.That(r.Filters).IsEquivalentTo([P, U], CollectionOrdering.Matching);
+        await Assert.That(EqChain.Layer(MakeProfile(autoEqEnabled: false), MakeSettings(), ChainLayer.AutoEq)).IsEmpty();
     }
 
-    [Fact]
-    public void Chain_NoActiveProfile_AppliesUniversalOnly()
+    [Test]
+    public async Task Chain_NoActiveProfile_AppliesUniversalOnly()
     {
         var r = EqChain.Build(null, MakeSettings());
-        Assert.Equal([U], r.Filters);
-        Assert.Empty(EqChain.Layer(null, MakeSettings(), ChainLayer.AutoEq));
-        Assert.Empty(EqChain.Layer(null, MakeSettings(), ChainLayer.ProfilePreference));
+        await Assert.That(r.Filters).IsEquivalentTo([U], CollectionOrdering.Matching);
+        await Assert.That(EqChain.Layer(null, MakeSettings(), ChainLayer.AutoEq)).IsEmpty();
+        await Assert.That(EqChain.Layer(null, MakeSettings(), ChainLayer.ProfilePreference)).IsEmpty();
     }
 
-    [Fact]
-    public void Chain_UniversalDisabled_DropsUniversal()
+    [Test]
+    public async Task Chain_UniversalDisabled_DropsUniversal()
     {
         var s = MakeSettings() with { Universal = MakeSettings().Universal with { Enabled = false } };
-        Assert.Empty(EqChain.Layer(MakeProfile(), s, ChainLayer.Universal));
+        await Assert.That(EqChain.Layer(MakeProfile(), s, ChainLayer.Universal)).IsEmpty();
     }
 
-    [Fact]
-    public void Chain_MasterOff_IsBypassed() =>
-        Assert.True(EqChain.Build(null, CurvySettings.Default with { MasterEnabled = false }).Bypassed);
+    [Test]
+    public async Task Chain_MasterOff_IsBypassed() =>
+        await Assert.That(EqChain.Build(null, CurvySettings.Default with { MasterEnabled = false }).Bypassed).IsTrue();
 
-    [Fact]
-    public void Preamp_StacksAllLayers()
+    [Test]
+    public async Task Preamp_StacksAllLayers()
     {
         var bass = new Preference(new ToneControls(BassDb: 12), [], true);
         var p = Profile.New("t") with { Preference = bass };
         var s = CurvySettings.Default with { Universal = bass };
-        Assert.InRange(EqChain.Build(p, s).PreampDb, -24.5, -23.5);
+        await Assert.That(EqChain.Build(p, s).PreampDb).IsGreaterThanOrEqualTo(-24.5).And.IsLessThanOrEqualTo(-23.5);
     }
 
-    [Fact]
-    public void Preamp_IsZero_WhenAllCuts() =>
-        Assert.Equal(0, EqChain.ComputePreamp([new(FilterType.Peaking, 1000, -6, 1)], 0));
+    [Test]
+    public async Task Preamp_IsZero_WhenAllCuts() =>
+        await Assert.That(EqChain.ComputePreamp([new(FilterType.Peaking, 1000, -6, 1)], 0)).IsEqualTo(0);
 
-    [Fact]
-    public void Preamp_CoversNarrowPeakBetweenGridPoints()
+    [Test]
+    public async Task Preamp_CoversNarrowPeakBetweenGridPoints()
     {
         var narrow = new Filter(FilterType.Peaking, 3517, 9, 12);
-        Assert.True(EqChain.ComputePreamp([narrow], 0) <= -9.0);
+        await Assert.That(EqChain.ComputePreamp([narrow], 0) <= -9.0).IsTrue();
     }
 
-    [Fact]
-    public void Preamp_RoundsDownTo0_1_AndAddsHeadroom()
+    [Test]
+    public async Task Preamp_RoundsDownTo0_1_AndAddsHeadroom()
     {
-        Assert.Equal(-6.0, EqChain.ComputePreamp([new(FilterType.Peaking, 1000, 5.93, 1)], 0));
-        Assert.Equal(-8.0, EqChain.ComputePreamp([new(FilterType.Peaking, 1000, 5.93, 1)], 2));
+        await Assert.That(EqChain.ComputePreamp([new(FilterType.Peaking, 1000, 5.93, 1)], 0)).IsEqualTo(-6.0);
+        await Assert.That(EqChain.ComputePreamp([new(FilterType.Peaking, 1000, 5.93, 1)], 2)).IsEqualTo(-8.0);
     }
 }

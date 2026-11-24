@@ -1,5 +1,6 @@
+using System.IO;
 using Curvy.Core.Apo;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Apo;
 
@@ -10,7 +11,7 @@ public sealed class AtomicFileTests : IDisposable
     public AtomicFileTests() => Directory.CreateDirectory(dir);
     public void Dispose() { try { Directory.Delete(dir, true); } catch { } }
 
-    [Fact]
+    [Test]
     public async Task WriteAllText_RetriesWhenTargetBrieflyHeldOpen()
     {
         var path = Path.Combine(dir, "config.txt");
@@ -21,18 +22,18 @@ public sealed class AtomicFileTests : IDisposable
         AtomicFile.WriteAllText(path, "new");
         await release;
 
-        Assert.Equal("new", File.ReadAllText(path));
-        Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
+        await Assert.That(File.ReadAllText(path)).IsEqualTo("new");
+        await Assert.That(Directory.GetFiles(dir, "*.tmp")).IsEmpty();
     }
 
-    [Fact]
-    public void WriteAllText_CleansUpTempAndRethrows_WhenTargetStaysLocked()
+    [Test]
+    public async Task WriteAllText_CleansUpTempAndRethrows_WhenTargetStaysLocked()
     {
         var path = Path.Combine(dir, "config.txt");
         File.WriteAllText(path, "old");
         using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
 
-        Assert.ThrowsAny<Exception>(() => AtomicFile.WriteAllText(path, "new"));
-        Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
+        await Assert.That(() => AtomicFile.WriteAllText(path, "new")).Throws<Exception>();
+        await Assert.That(Directory.GetFiles(dir, "*.tmp")).IsEmpty();
     }
 }

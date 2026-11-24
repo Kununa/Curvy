@@ -1,6 +1,6 @@
 using Curvy.Core.Engine;
 using Microsoft.Extensions.Time.Testing;
-using Xunit;
+using System.Threading.Tasks;
 
 namespace Curvy.Core.Tests.Engine;
 
@@ -10,52 +10,52 @@ public sealed class RepairGuardTests
 
     private void Advance(int seconds) => _time.Advance(TimeSpan.FromSeconds(seconds));
 
-    [Fact]
-    public void RepairsWithinLimit_AreAllowed()
+    [Test]
+    public async Task RepairsWithinLimit_AreAllowed()
     {
         var g = new RepairGuard(_time);
-        Assert.True(g.TryAcquire());
+        await Assert.That(g.TryAcquire()).IsTrue();
         Advance(10);
-        Assert.True(g.TryAcquire());
+        await Assert.That(g.TryAcquire()).IsTrue();
         Advance(10);
-        Assert.True(g.TryAcquire());
-        Assert.False(g.IsBlocked);
+        await Assert.That(g.TryAcquire()).IsTrue();
+        await Assert.That(g.IsBlocked).IsFalse();
     }
 
-    [Fact]
-    public void FourthRepairWithin60s_IsBlocked_AndStaysBlocked()
+    [Test]
+    public async Task FourthRepairWithin60s_IsBlocked_AndStaysBlocked()
     {
         var g = new RepairGuard(_time);
-        for (var i = 0; i < 3; i++) Assert.True(g.TryAcquire());
+        for (var i = 0; i < 3; i++) await Assert.That(g.TryAcquire()).IsTrue();
         Advance(59);
-        Assert.False(g.TryAcquire());
-        Assert.True(g.IsBlocked);
+        await Assert.That(g.TryAcquire()).IsFalse();
+        await Assert.That(g.IsBlocked).IsTrue();
         Advance(3600); // no automatic recovery: only a manual reset (or the next app start)
-        Assert.False(g.TryAcquire());
+        await Assert.That(g.TryAcquire()).IsFalse();
     }
 
-    [Fact]
-    public void Window_Slides()
+    [Test]
+    public async Task Window_Slides()
     {
         var g = new RepairGuard(_time);
-        Assert.True(g.TryAcquire()); // t = 0
+        await Assert.That(g.TryAcquire()).IsTrue(); // t = 0
         Advance(30);
-        Assert.True(g.TryAcquire()); // t = 30
-        Assert.True(g.TryAcquire()); // t = 30
+        await Assert.That(g.TryAcquire()).IsTrue(); // t = 30
+        await Assert.That(g.TryAcquire()).IsTrue(); // t = 30
         Advance(30);
-        Assert.True(g.TryAcquire()); // t = 60: the t = 0 repair left the window
-        Assert.False(g.IsBlocked);
-        Assert.False(g.TryAcquire()); // three within the last 60 s
+        await Assert.That(g.TryAcquire()).IsTrue(); // t = 60: the t = 0 repair left the window
+        await Assert.That(g.IsBlocked).IsFalse();
+        await Assert.That(g.TryAcquire()).IsFalse(); // three within the last 60 s
     }
 
-    [Fact]
-    public void Reset_Unblocks_AndClearsHistory()
+    [Test]
+    public async Task Reset_Unblocks_AndClearsHistory()
     {
         var g = new RepairGuard(_time);
         for (var i = 0; i < 3; i++) g.TryAcquire();
-        Assert.False(g.TryAcquire());
+        await Assert.That(g.TryAcquire()).IsFalse();
         g.Reset();
-        Assert.False(g.IsBlocked);
-        for (var i = 0; i < 3; i++) Assert.True(g.TryAcquire());
+        await Assert.That(g.IsBlocked).IsFalse();
+        for (var i = 0; i < 3; i++) await Assert.That(g.TryAcquire()).IsTrue();
     }
 }
