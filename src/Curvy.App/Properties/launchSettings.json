@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Curvy.App (Unpackaged)": {
+      "commandName": "Project"
+    },
+    "Curvy.App (Unpackaged, Devtools)": {
+      "commandName": "Project",
+      "commandLineArgs": "--devtools app"
+    }
+  }
+}
