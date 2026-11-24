@@ -12,7 +12,9 @@ using static Microsoft.UI.Reactor.Factories;
 
 namespace Curvy.App.Components;
 
-public record ProfilesPageProps(EngineState State, Action<string?> OnOpenAutoEq);
+/// <param name="OnOpenAutoEq">Opens the AutoEQ page: (search query, profile whose correction to replace).</param>
+/// <param name="InitialSelection">Profile to select on mount (falls back to the active one).</param>
+public record ProfilesPageProps(EngineState State, Action<string?, Guid?> OnOpenAutoEq, Guid? InitialSelection = null);
 
 /// <summary>Profile list (left) and the editor for the selected profile (right).</summary>
 public sealed class ProfilesPage : Component<ProfilesPageProps>
@@ -22,7 +24,8 @@ public sealed class ProfilesPage : Component<ProfilesPageProps>
         var host = EngineHost.Instance;
         var state = Props.State;
         var profiles = state.Profiles;
-        var (selectedId, setSelectedId) = UseState<Guid?>(state.ActiveProfile?.Id ?? profiles.FirstOrDefault()?.Id);
+        var (selectedId, setSelectedId) = UseState<Guid?>(
+            Props.InitialSelection ?? state.ActiveProfile?.Id ?? profiles.FirstOrDefault()?.Id);
 
         // Fall back to the active (or first) profile when the selection disappeared.
         var selected = profiles.FirstOrDefault(p => p.Id == selectedId)
@@ -97,7 +100,7 @@ public record ProfileEditorProps(
     CurvySettings Settings,
     ChainResult Current,
     string? ActiveProfileName,
-    Action<string?> OnOpenAutoEq,
+    Action<string?, Guid?> OnOpenAutoEq,
     Action<Guid> OnSelect,
     string DuplicateName);
 
@@ -240,12 +243,12 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
                 Caption($"{ae.Source.Source} · {ae.Source.Rig} · {ae.Filters.Count} filters · fetched {ae.Source.FetchedAt.LocalDateTime:d}"),
                 HStack(12,
                     ToggleSwitch(p.AutoEqEnabled, on => Update(x => x with { AutoEqEnabled = on }), "On", "Off"),
-                    Button("Change source", () => props.OnOpenAutoEq(ae.Source.Headphone))
+                    Button("Change source", () => props.OnOpenAutoEq(ae.Source.Headphone, p.Id))
                         .VAlign(VerticalAlignment.Center)))
             : VStack(8,
                 BodyStrong("AutoEQ correction"),
                 Caption("No AutoEQ correction in this profile."),
-                Button("Choose AutoEQ source", () => props.OnOpenAutoEq(p.Name)));
+                Button("Choose AutoEQ source", () => props.OnOpenAutoEq(p.Name, p.Id)));
 
         var body = VStack(16,
             Card(autoEq),

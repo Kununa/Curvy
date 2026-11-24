@@ -9,10 +9,14 @@ namespace Curvy.App.Components;
 
 public abstract record Route
 {
-    public sealed record Profiles : Route;
+    /// <summary>Profiles page, optionally with a profile selected (e.g. after AutoEQ created it).</summary>
+    public sealed record Profiles(Guid? Select = null) : Route;
     public sealed record Universal : Route;
-    /// <summary>AutoEQ browser, optionally pre-filtered (e.g. "Change source" passes the headphone).</summary>
-    public sealed record AutoEq(string? Query = null) : Route;
+    /// <summary>
+    /// AutoEQ browser, optionally pre-filtered (e.g. "Change source" passes the headphone). With
+    /// <paramref name="ReplaceForProfileId"/> it swaps that profile's correction instead of creating one.
+    /// </summary>
+    public sealed record AutoEq(string? Query = null, Guid? ReplaceForProfileId = null) : Route;
     public sealed record Settings : Route;
 }
 
@@ -47,10 +51,16 @@ public sealed class Shell : EngineComponent
         var nav = UseNavigation<Route>(new Route.Profiles());
         var host = EngineHost.Instance;
 
-        void OpenAutoEq(string? query)
+        void OpenAutoEq(string? query, Guid? replaceForProfileId)
         {
             host.Flush(); // persist pending edits before leaving the page
-            nav.Navigate(new Route.AutoEq(query));
+            nav.Navigate(new Route.AutoEq(query, replaceForProfileId));
+        }
+
+        void OpenProfile(Guid id)
+        {
+            host.Flush();
+            nav.Navigate(new Route.Profiles(id));
         }
 
         Element Page(Route route)
@@ -65,12 +75,15 @@ public sealed class Shell : EngineComponent
             {
                 Route.Universal => Placeholder("Universal preference",
                     "A preference applied on top of every profile. Coming soon."),
-                Route.AutoEq a => Placeholder("AutoEQ",
-                    a.Query is { Length: > 0 } q
-                        ? $"Search AutoEQ headphone corrections. Pre-filtered to \"{q}\". Coming soon."
-                        : "Search AutoEQ headphone corrections. Coming soon."),
+                // Keyed by the route so a different query / target remounts with fresh state.
+                Route.AutoEq a => Component<AutoEqPage, AutoEqPageProps>(
+                        new AutoEqPageProps(a.Query, a.ReplaceForProfileId, state, OpenProfile))
+                    .WithKey($"autoeq:{a.Query}:{a.ReplaceForProfileId}"),
                 Route.Settings => Placeholder("Settings", "Coming soon."),
-                _ => Component<ProfilesPage, ProfilesPageProps>(new ProfilesPageProps(state, OpenAutoEq)),
+                Route.Profiles p => Component<ProfilesPage, ProfilesPageProps>(
+                        new ProfilesPageProps(state, OpenAutoEq, p.Select))
+                    .WithKey($"profiles:{p.Select}"),
+                _ => Component<ProfilesPage, ProfilesPageProps>(new ProfilesPageProps(state, OpenAutoEq, null)),
             };
         }
 

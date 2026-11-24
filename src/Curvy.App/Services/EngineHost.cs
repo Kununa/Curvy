@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Curvy.Core.Apo;
+using Curvy.Core.AutoEq;
 using Curvy.Core.Chain;
 using Curvy.Core.Engine;
 using Curvy.Core.Model;
@@ -46,6 +47,9 @@ public sealed class EngineHost
     readonly DispatcherQueue _dispatcher;
     readonly DispatcherQueueTimer _timer;
     readonly KeyedPending _pending = new();
+    AutoEqClient? _autoEq;
+    AutoEqIndexLoader? _autoEqIndex;
+    AutoEqCorrectionCache? _autoEqCorrections;
     string? _startupError;
     string? _uiError;
 
@@ -86,6 +90,43 @@ public sealed class EngineHost
 
     /// <summary>The APO config folder that was found (or null if none).</summary>
     public string? TriedPath { get; }
+
+    /// <summary>
+    /// AutoEQ access (index + ParametricEQ files), cached on disk under <c>CurvyPaths.Rootutoeq</c>.
+    /// One shared <see cref="HttpClient"/> for the process; created on first use.
+    /// </summary>
+    public AutoEqClient AutoEq => _autoEq ??= new AutoEqClient(
+        new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+        Path.Combine(CurvyPaths.Root, "autoeq"),
+        TimeProvider.System);
+
+    /// <summary>In-memory AutoEQ index; at most one index load runs at a time (Task 12 ruling).</summary>
+    public AutoEqIndexLoader AutoEqIndex => _autoEqIndex ??= new AutoEqIndexLoader(AutoEq);
+
+    /// <summary>Fetched corrections per index entry, so repeated previews don't refetch.</summary>
+    public AutoEqCorrectionCache AutoEqCorrections => _autoEqCorrections ??= new AutoEqCorrectionCache(AutoEq);
+
+    /// <summary>
+    /// Runs <paramref name="action"/> on the UI thread (inline when already there). For async
+    /// continuations that may resume on the thread pool. Exceptions go to the UI error bar.
+    /// </summary>
+    public void Post(Action action)
+    {
+        if (_dispatcher.HasThreadAccess) Run(action);
+        else _dispatcher.TryEnqueue(() => Run(action));
+    }
+
+    /// <summary>Shows <paramref name="message"/> in the dismissable "Something went wrong" bar.</summary>
+    public void ReportError(string message)
+    {
+        if (!_dispatcher.HasThreadAccess)
+        {
+            _dispatcher.TryEnqueue(() => ReportError(message));
+            return;
+        }
+        _uiError = message;
+        Publish();
+    }
 
     public CurvyEngine Engine =>
         _engine ?? throw new InvalidOperationException("Equalizer APO is not available.");
