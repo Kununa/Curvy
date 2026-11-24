@@ -47,7 +47,11 @@ public sealed class Shell : EngineComponent
         var nav = UseNavigation<Route>(new Route.Profiles());
         var host = EngineHost.Instance;
 
-        void OpenAutoEq(string? query) => nav.Navigate(new Route.AutoEq(query));
+        void OpenAutoEq(string? query)
+        {
+            host.Flush(); // persist pending edits before leaving the page
+            nav.Navigate(new Route.AutoEq(query));
+        }
 
         Element Page(Route route)
         {
@@ -55,7 +59,8 @@ public sealed class Shell : EngineComponent
                 return Placeholder("Curvy is inactive",
                     "Install Equalizer APO (and enable it for your output device), then restart Curvy.");
             if (!state.Ready)
-                return Placeholder("Curvy is inactive", "The engine couldn't start; see the message above.");
+                return Placeholder("Curvy is inactive",
+                    state.StartupError ?? "The engine couldn't start. Restart Curvy to try again.");
             return route switch
             {
                 Route.Universal => Placeholder("Universal preference",
@@ -79,6 +84,9 @@ public sealed class Shell : EngineComponent
         if (state.WriteError is { } writeError)
             bars.Add(InfoBar("Couldn't write the Equalizer APO configuration", writeError)
                 with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Warning });
+        if (state.StartupError is { } startupError)
+            bars.Add(InfoBar("Curvy couldn't start", startupError)
+                with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Error });
         if (state.UiError is { } uiError)
             bars.Add(InfoBar("Something went wrong", uiError)
                 with { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Error, OnClosed = host.DismissUiError });
@@ -99,7 +107,9 @@ public sealed class Shell : EngineComponent
             OnSelectedTagChanged = tag =>
             {
                 var target = TagToRoute(tag);
-                if (RouteToTag(target) != RouteToTag(nav.CurrentRoute)) nav.Navigate(target);
+                if (RouteToTag(target) == RouteToTag(nav.CurrentRoute)) return;
+                host.Flush(); // persist pending edits before leaving the page
+                nav.Navigate(target);
             },
             IsSettingsVisible = true,
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,

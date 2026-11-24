@@ -23,6 +23,7 @@ public sealed record EngineState(
     Profile? ActiveProfile,
     ChainResult Current,
     string? WriteError,
+    string? StartupError,
     string? UiError);
 
 /// <summary>
@@ -44,7 +45,8 @@ public sealed class EngineHost
     readonly CurvyEngine? _engine;
     readonly DispatcherQueue _dispatcher;
     readonly DispatcherQueueTimer _timer;
-    Action? _pending;
+    readonly KeyedPending _pending = new();
+    string? _startupError;
     string? _uiError;
 
     EngineHost()
@@ -73,7 +75,7 @@ public sealed class EngineHost
             catch (Exception ex)
             {
                 Debug.WriteLine($"Curvy: engine startup failed: {ex}");
-                _uiError = $"Curvy could not start its engine: {ex.Message}";
+                _startupError = $"Curvy could not start its engine: {ex.Message}";
             }
         }
         State = Snapshot();
@@ -94,26 +96,40 @@ public sealed class EngineHost
     /// <summary>Raised on the UI thread after the engine (or the UI error) changed.</summary>
     public event EventHandler? Changed;
 
+    /// <summary>Debounce key for edits to one profile.</summary>
+    public static string ProfileKey(Guid id) => $"profile:{id}";
+
+    /// <summary>Debounce key for the universal preference (Task 13).</summary>
+    public const string UniversalKey = "universal";
+
+    /// <summary>Debounce key for settings edits (Task 13).</summary>
+    public const string SettingsKey = "settings";
+
     /// <summary>
-    /// Runs <paramref name="mutate"/> after 150 ms without further calls. Only the latest
-    /// action runs; each call restarts the timer.
+    /// Schedules <paramref name="mutate"/> under <paramref name="key"/>: one pending action per
+    /// key (a later call with the same key replaces it), one shared 150 ms timer restarted on
+    /// every call. When the timer fires, all pending actions run in first-insertion order, so
+    /// edits to different things (two profiles, a profile and the universal preference) are
+    /// never dropped.
     /// </summary>
-    public void Debounced(Action mutate)
+    public void Debounced(string key, Action mutate)
     {
-        _pending = mutate;
+        _pending.Set(key, mutate);
         _timer.Stop();
         _timer.Start();
     }
 
-    /// <summary>True while a debounced action is waiting to run.</summary>
-    public bool HasPending => _pending is not null;
+    /// <summary>True while a debounced action for <paramref name="key"/> is waiting to run.</summary>
+    public bool HasPending(string key) => _pending.Contains(key);
 
-    /// <summary>Runs any pending debounced action now (before delete/activate/exit).</summary>
+    /// <summary>
+    /// Runs every pending debounced action now (before delete/activate/navigation/exit). Each runs
+    /// in its own try/catch, so one failure doesn't drop the others.
+    /// </summary>
     public void Flush()
     {
         _timer.Stop();
-        var action = Interlocked.Exchange(ref _pending, null);
-        if (action is not null) Run(action);
+        foreach (var action in _pending.TakeAll()) Run(action);
     }
 
     /// <summary>Runs an engine call immediately, flushing pending edits first; never throws.</summary>
@@ -157,9 +173,9 @@ public sealed class EngineHost
     }
 
     EngineState Snapshot() => _engine is { } e
-        ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError, _uiError)
+        ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError, _startupError, _uiError)
         : new EngineState(ApoAvailable, false, TriedPath, [], CurvySettings.Default, null,
-            new ChainResult(true, 0, []), null, _uiError);
+            new ChainResult(true, 0, []), null, _startupError, _uiError);
 }
 
 /// <summary>The <c>UseEngine()</c> hook: current <see cref="EngineState"/>, re-rendering on every change.</summary>

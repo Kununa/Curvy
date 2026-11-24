@@ -2,9 +2,11 @@ using System.Collections.Immutable;
 using Curvy.Core.Apo;
 using Curvy.Core.Chain;
 using Curvy.Core.Filters;
+using Xunit;
 
 namespace Curvy.Core.Tests.Apo;
 
+[Collection(EnvCollection.Name)] // FindConfigDirectory_PrefersEnvOverride sets CURVY_APO_CONFIG_DIR
 public sealed class ApoConfigTests : IDisposable
 {
     private readonly string dir = Path.Combine(Path.GetTempPath(), "curvy-test-" + Guid.NewGuid().ToString("N"));

@@ -53,8 +53,9 @@ public sealed class ProfilesPage : Component<ProfilesPageProps>
                 ListView(selectedIndex, i =>
                     {
                         if (i < 0 || i >= profiles.Count || profiles[i].Id == selected?.Id) return;
-                        // Save the outgoing profile's pending edit now: Debounced keeps only the
-                        // latest action, so an edit on the next profile would otherwise replace it.
+                        // Save the outgoing profile's pending edits before switching (belt and
+                        // braces: debounce slots are keyed per profile, and the editor also
+                        // flushes on unmount).
                         host.Flush();
                         setSelectedId(profiles[i].Id);
                     }, rows)
@@ -122,13 +123,17 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
         var (_, bump) = UseReducer(0);
         var (nameEdit, setNameEdit) = UseState<string?>(null);
         var (confirmDelete, setConfirmDelete) = UseState(false);
-        var (hidden, setHidden) = UseState(0); // bitmask of hidden GraphSeriesStyle values
+        var (hidden, updateHidden) = UseReducer(0); // bitmask of hidden GraphSeriesStyle values
+
+        // Leaving this profile (list switch, navigation, delete): persist pending edits now, so a
+        // rename committed on LostFocus right after the selection changed can't be lost.
+        UseEffect(() => () => EngineHost.Instance.Flush(), props.Saved.Id);
 
         // Adopt changes made elsewhere (e.g. another page) unless our own edits are in flight.
         if (!ReferenceEquals(lastSaved.Current, props.Saved))
         {
             lastSaved.Current = props.Saved;
-            if (!host.HasPending && props.Saved with { Modified = default } != draft.Current with { Modified = default })
+            if (!host.HasPending(EngineHost.ProfileKey(props.Saved.Id)) && props.Saved with { Modified = default } != draft.Current with { Modified = default })
                 draft.Current = props.Saved;
         }
         var p = draft.Current;
@@ -139,7 +144,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
             if (next == draft.Current) return;
             draft.Current = next;
             bump(n => n + 1);
-            host.Debounced(() => host.Engine.SaveProfile(next));
+            host.Debounced(EngineHost.ProfileKey(next.Id), () => host.Engine.SaveProfile(next));
         }
 
         void CommitName()
@@ -167,7 +172,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
         // ── Graph ────────────────────────────────────────────────────────
         bool Visible(GraphSeriesStyle s) => (hidden & (1 << (int)s)) == 0;
         void Toggle(GraphSeriesStyle s, bool on) =>
-            setHidden(on ? hidden & ~(1 << (int)s) : hidden | (1 << (int)s));
+            updateHidden(h => on ? h & ~(1 << (int)s) : h | (1 << (int)s));
 
         var settings = props.Settings;
         var series = Layers
