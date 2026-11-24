@@ -4,7 +4,7 @@
     <TargetFramework>net11.0-windows10.0.22621.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
-    <RootNamespace>Curvy_App</RootNamespace>
+    <RootNamespace>Curvy.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon Condition="Exists('Assets\AppIcon.ico')">Assets\AppIcon.ico</ApplicationIcon>
     <Platforms>x86;x64;ARM64</Platforms>
@@ -20,7 +20,9 @@
 
 
   <ItemGroup>
-    <Content Include="Assets\AppIcon.ico" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Placeholder tray/window icon (copy of AppIcon.ico); replace with real artwork later. -->
+    <Content Include="Assets\curvy.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
@@ -32,6 +34,10 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="ScottPlot.WinUI" Version="5.1.59" />
+    <!-- ScottPlot.WinUI depends on the WindowsAppSDK 1.5 metapackage, which collides with the
+         WinAppSDK 2.x split packages Reactor brings. Pin it but exclude all of its assets. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" ExcludeAssets="all" />
   </ItemGroup>
 
   <!--
