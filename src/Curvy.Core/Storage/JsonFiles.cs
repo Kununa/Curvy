@@ -17,6 +17,15 @@ public static class JsonFiles
 
 public static class CurvyPaths
 {
-    public static string Root { get; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Curvy");
+    /// <summary>Environment variable that overrides <see cref="Root"/> (development and tests).</summary>
+    public const string EnvOverride = "CURVY_DATA_DIR";
+
+    /// <summary><c>%CURVY_DATA_DIR%</c> when set, otherwise <c>%LocalAppData%\Curvy</c>.</summary>
+    public static string Root =>
+        Environment.GetEnvironmentVariable(EnvOverride) is { Length: > 0 } env
+            ? env
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Curvy");
+
+    /// <summary>One JSON file per profile.</summary>
+    public static string ProfilesDir => Path.Combine(Root, "profiles");
 }

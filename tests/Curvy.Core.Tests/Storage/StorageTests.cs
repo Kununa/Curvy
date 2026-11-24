@@ -6,6 +6,7 @@ using Xunit;
 
 namespace Curvy.Core.Tests.Storage;
 
+[Collection(EnvCollection.Name)]
 public sealed class StorageTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "curvy-tests-" + Guid.NewGuid().ToString("N"));
@@ -122,5 +123,23 @@ public sealed class StorageTests : IDisposable
         Assert.Equal(s.StartWithWindows, l.StartWithWindows);
         Assert.True(s.DisabledForeignLines.SequenceEqual(l.DisabledForeignLines));
         AssertPreferenceEqual(s.Universal, l.Universal);
+    }
+
+    [Fact]
+    public void CurvyPaths_Root_HonoursEnvOverride()
+    {
+        var old = Environment.GetEnvironmentVariable(CurvyPaths.EnvOverride);
+        try
+        {
+            Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, _dir);
+            Assert.Equal(_dir, CurvyPaths.Root);
+            Assert.Equal(Path.Combine(_dir, "profiles"), CurvyPaths.ProfilesDir);
+
+            Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, null);
+            Assert.Equal(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Curvy"),
+                CurvyPaths.Root);
+        }
+        finally { Environment.SetEnvironmentVariable(CurvyPaths.EnvOverride, old); }
     }
 }

@@ -43,10 +43,12 @@ public sealed class EqGraph : Component<EqGraphProps>
         var interaction = UseRef(new Interaction());
         interaction.Current.Props = Props;
         var props = Props;
+        var isDark = UseIsDarkTheme();
+        var palette = isDark ? GraphPalette.Dark : GraphPalette.Light;
 
         return XamlHost(
             () => CreatePlot(interaction.Current),
-            fe => Redraw((WinUIPlot)fe, props),
+            fe => Redraw((WinUIPlot)fe, props, palette),
             typeKey: "Curvy.EqGraph");
     }
 
@@ -90,24 +92,50 @@ public sealed class EqGraph : Component<EqGraphProps>
     static void ApplyLimits(Plot plot) =>
         plot.Axes.SetLimits(Math.Log10(MinHz), Math.Log10(MaxHz), -MaxGainDb, MaxGainDb);
 
-    static PlotColor ColorFor(GraphSeriesStyle style) => style switch
+    /// <summary>Plot colours for the app's light or dark theme.</summary>
+    sealed record GraphPalette(
+        string Figure, string Data, string Axis, string Grid, string Total, string HandleOutline)
     {
-        GraphSeriesStyle.AutoEq => PlotColor.FromHex("#3A86FF"),
-        GraphSeriesStyle.ProfilePreference => PlotColor.FromHex("#FF8C00"),
-        GraphSeriesStyle.Universal => PlotColor.FromHex("#2A9D8F"),
-        _ => PlotColor.FromHex("#202020"),
+        public static readonly GraphPalette Light =
+            new("#FFFFFF", "#FAFAFA", "#303030", "#E3E3E3", "#202020", "#FFFFFF");
+        public static readonly GraphPalette Dark =
+            new("#202020", "#272727", "#D7D7D7", "#3C3C3C", "#F2F2F2", "#202020");
+    }
+
+    /// <summary>
+    /// Line colour of a series as <c>#RRGGBB</c>, so callers can draw a matching legend swatch
+    /// (the graph has no in-plot legend: it would cover the band handles).
+    /// </summary>
+    public static string SeriesHex(GraphSeriesStyle style, bool isDark) => style switch
+    {
+        GraphSeriesStyle.AutoEq => "#3A86FF",
+        GraphSeriesStyle.ProfilePreference => "#FF8C00",
+        GraphSeriesStyle.Universal => "#2A9D8F",
+        _ => (isDark ? GraphPalette.Dark : GraphPalette.Light).Total,
     };
 
-    static void Redraw(WinUIPlot control, EqGraphProps props)
+    static PlotColor ColorFor(GraphSeriesStyle style, GraphPalette palette) =>
+        PlotColor.FromHex(SeriesHex(style, palette == GraphPalette.Dark));
+
+    static void ApplyTheme(Plot plot, GraphPalette p)
+    {
+        plot.FigureBackground.Color = PlotColor.FromHex(p.Figure);
+        plot.DataBackground.Color = PlotColor.FromHex(p.Data);
+        plot.Axes.Color(PlotColor.FromHex(p.Axis));
+        plot.Grid.MajorLineColor = PlotColor.FromHex(p.Grid);
+    }
+
+    static void Redraw(WinUIPlot control, EqGraphProps props, GraphPalette palette)
     {
         var plot = control.Plot;
         plot.Clear();
+        ApplyTheme(plot, palette);
 
         // Draw Total last so it sits on top.
         foreach (var s in props.Series.OrderBy(s => s.Style == GraphSeriesStyle.Total ? 1 : 0))
         {
             var ys = Response.Evaluate(s.Filters, Freqs);
-            var line = plot.Add.ScatterLine(Xs, ys, ColorFor(s.Style));
+            var line = plot.Add.ScatterLine(Xs, ys, ColorFor(s.Style, palette));
             line.LineWidth = s.Style == GraphSeriesStyle.Total ? 3.5f : 1.5f;
             line.LegendText = s.Label;
         }
@@ -116,12 +144,12 @@ public sealed class EqGraph : Component<EqGraphProps>
         {
             var b = props.EditableBands[i];
             var marker = plot.Add.Marker(Math.Log10(b.FrequencyHz), b.GainDb, MarkerShape.FilledCircle, 12,
-                ColorFor(GraphSeriesStyle.ProfilePreference));
-            marker.MarkerLineColor = PlotColor.FromHex("#FFFFFF");
+                ColorFor(GraphSeriesStyle.ProfilePreference, palette));
+            marker.MarkerLineColor = PlotColor.FromHex(palette.HandleOutline);
             marker.MarkerLineWidth = 1.5f;
         }
 
-        plot.ShowLegend(Alignment.UpperRight);
+        plot.HideLegend();
         ApplyLimits(plot);
         control.Refresh();
     }
@@ -164,7 +192,7 @@ public sealed class EqGraph : Component<EqGraphProps>
         {
             FrequencyHz = Math.Round(hz, hz < 1000 ? 1 : 0),
             GainDb = Math.Round(gain, 1),
-            Q = Math.Max(0.1, old.Q),
+            Q = Math.Clamp(old.Q, 0.1, 20),
         };
         if (updated != old) state.Props.OnBandChanged(i, updated);
         e.Handled = true;
