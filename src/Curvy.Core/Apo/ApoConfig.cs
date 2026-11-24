@@ -11,29 +11,45 @@ public sealed class ApoConfig(string configDir)
     public string OutputPath { get; } = Path.Combine(configDir, "Curvy", "curvy.txt");
     private string BackupPath => ConfigTxtPath + BackupSuffix;
 
-    public IReadOnlyList<ConfigLine> ReadConfigTxt() => ConfigTxt.Classify(ReadRawLines());
+    private static readonly Encoding Latin1 = Encoding.Latin1;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, throwOnInvalidBytes: true);
 
-    private List<string> ReadRawLines()
+    private sealed record RawFile(List<string> Lines, bool Bom, bool Utf8);
+
+    private RawFile ReadRaw()
     {
-        if (!File.Exists(ConfigTxtPath)) return [];
-        var text = File.ReadAllText(ConfigTxtPath);
-        if (text.Length == 0) return [];
+        if (!File.Exists(ConfigTxtPath)) return new RawFile([], false, true);
+        var bytes = File.ReadAllBytes(ConfigTxtPath);
+        var bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+        var body = bom ? bytes.AsSpan(3) : bytes.AsSpan();
+        string text;
+        var utf8 = true;
+        try { text = StrictUtf8.GetString(body); }
+        catch (DecoderFallbackException) { text = Latin1.GetString(body); utf8 = false; }
+        if (text.Length == 0) return new RawFile([], bom, utf8);
         var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
         if (lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1); // trailing newline
-        return lines;
+        return new RawFile(lines, bom, utf8);
     }
 
-    private void WriteLines(IEnumerable<string> lines)
+    public IReadOnlyList<ConfigLine> ReadConfigTxt() => ConfigTxt.Classify(ReadRaw().Lines);
+
+    private void WriteLines(IEnumerable<string> lines, RawFile raw)
     {
         var sb = new StringBuilder();
         foreach (var l in lines) sb.Append(l).Append("\r\n");
         Directory.CreateDirectory(configDir);
-        AtomicFile.WriteAllText(ConfigTxtPath, sb.ToString());
+        BackupOnce();
+        var enc = raw.Utf8 ? StrictUtf8 : Latin1;
+        var body = enc.GetBytes(sb.ToString());
+        var bytes = raw.Bom ? [.. new byte[] { 0xEF, 0xBB, 0xBF }, .. body] : body;
+        AtomicFile.WriteAllBytes(ConfigTxtPath, bytes);
     }
 
     public bool EnsureCurvyInclude()
     {
-        var classified = ReadConfigTxt();
+        var raw = ReadRaw();
+        var classified = ConfigTxt.Classify(raw.Lines);
         var includes = classified.Where(l => l.Kind == ConfigLineKind.CurvyInclude).ToList();
         if (includes.Count == 1) return false;
 
@@ -47,15 +63,19 @@ public sealed class ApoConfig(string configDir)
             var drop = includes.Skip(1).Select(l => l.Index).ToHashSet();
             lines = lines.Where((_, i) => !drop.Contains(i)).ToList();
         }
-        WriteLines(lines);
+        WriteLines(lines, raw);
         return true;
     }
 
-    public void SetLineDisabled(int index, bool disabled)
+    public void SetLineDisabled(int index, string expectedText, bool disabled)
     {
-        var classified = ReadConfigTxt();
+        var raw = ReadRaw();
+        var classified = ConfigTxt.Classify(raw.Lines);
         if (index < 0 || index >= classified.Count) throw new ArgumentOutOfRangeException(nameof(index));
         var line = classified[index];
+        var stripped = line.Kind == ConfigLineKind.CurvyDisabled ? line.Text[ConfigTxt.DisabledPrefix.Length..] : line.Text;
+        if (line.Text != expectedText && stripped != expectedText)
+            throw new InvalidOperationException("config.txt changed");
         if (line.Kind == ConfigLineKind.CurvyInclude)
             throw new InvalidOperationException("Curvy's own include line cannot be toggled.");
 
@@ -68,19 +88,20 @@ public sealed class ApoConfig(string configDir)
 
         var lines = classified.Select(l => l.Text).ToList();
         lines[index] = replacement;
-        WriteLines(lines);
+        WriteLines(lines, raw);
     }
 
     public void BackupOnce()
     {
         if (File.Exists(BackupPath) || !File.Exists(ConfigTxtPath)) return;
-        File.Copy(ConfigTxtPath, BackupPath, overwrite: false);
+        try { AtomicFile.CopyAtomic(ConfigTxtPath, BackupPath, overwrite: false); }
+        catch (IOException) when (File.Exists(BackupPath)) { }
     }
 
     public bool RestoreBackup()
     {
         if (!File.Exists(BackupPath)) return false;
-        File.Copy(BackupPath, ConfigTxtPath, overwrite: true);
+        AtomicFile.CopyAtomic(BackupPath, ConfigTxtPath, overwrite: true);
         return true;
     }
 
@@ -94,13 +115,13 @@ public sealed class ApoConfig(string configDir)
     {
         try
         {
-            Directory.CreateDirectory(configDir);
+            if (!Directory.Exists(configDir)) return false;
             var probe = Path.Combine(configDir, ".curvy-write-test-" + Guid.NewGuid().ToString("N"));
             File.WriteAllText(probe, "");
             File.Delete(probe);
             return true;
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or ArgumentException or NotSupportedException)
         {
             return false;
         }

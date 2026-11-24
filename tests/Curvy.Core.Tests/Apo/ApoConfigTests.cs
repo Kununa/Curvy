@@ -63,12 +63,12 @@ public sealed class ApoConfigTests : IDisposable
     public void SetLineDisabled_RoundTrips_WithPrefix()
     {
         File.WriteAllText(cfg, "Include: peace.txt\r\nPreamp: -3 dB\r\n");
-        apo.SetLineDisabled(0, true);
+        apo.SetLineDisabled(0, "Include: peace.txt", true);
         var l = apo.ReadConfigTxt();
         Assert.Equal("# [Curvy] Include: peace.txt", l[0].Text);
         Assert.Equal(ConfigLineKind.CurvyDisabled, l[0].Kind);
         Assert.Equal("Preamp: -3 dB", l[1].Text);
-        apo.SetLineDisabled(0, false);
+        apo.SetLineDisabled(0, "# [Curvy] Include: peace.txt", false);
         l = apo.ReadConfigTxt();
         Assert.Equal("Include: peace.txt", l[0].Text);
         Assert.Equal(ConfigLineKind.Active, l[0].Kind);
@@ -78,7 +78,7 @@ public sealed class ApoConfigTests : IDisposable
     public void SetLineDisabled_OnCurvyInclude_Throws()
     {
         File.WriteAllText(cfg, ConfigTxt.CurvyIncludeLine + "\r\n");
-        Assert.Throws<InvalidOperationException>(() => apo.SetLineDisabled(0, true));
+        Assert.Throws<InvalidOperationException>(() => apo.SetLineDisabled(0, ConfigTxt.CurvyIncludeLine, true));
     }
 
     [Fact]
@@ -112,9 +112,61 @@ public sealed class ApoConfigTests : IDisposable
         apo.WriteOutput(r);
         Assert.True(File.Exists(apo.OutputPath));
         Assert.Equal(ApoFormatter.Format(r), File.ReadAllText(apo.OutputPath));
-        Assert.False(File.Exists(apo.OutputPath + ".tmp"));
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp", SearchOption.AllDirectories));
         Assert.NotEqual(0xEF, File.ReadAllBytes(apo.OutputPath)[0]);
         Assert.True(apo.IsWritable());
+    }
+
+    [Fact]
+    public void SetLineDisabled_Throws_WhenTextMismatch()
+    {
+        File.WriteAllText(cfg, "Include: a.txt\r\nInclude: b.txt\r\n");
+        Assert.Throws<InvalidOperationException>(() => apo.SetLineDisabled(0, "Include: b.txt", true));
+        Assert.Equal("Include: a.txt\r\nInclude: b.txt\r\n", File.ReadAllText(cfg));
+    }
+
+    [Fact]
+    public void Windows1252_Config_SurvivesRewrites_ByteExact()
+    {
+        var latin = System.Text.Encoding.Latin1;
+        var line = "Device: Lautsprecher (High Definition Audio-Ger\u00e4t)";
+        File.WriteAllBytes(cfg, latin.GetBytes(line + "\r\nInclude: x.txt\r\n"));
+        apo.EnsureCurvyInclude();
+        apo.SetLineDisabled(1, "Include: x.txt", true);
+        var expected = latin.GetBytes(line + "\r\n# [Curvy] Include: x.txt\r\n" + ConfigTxt.CurvyIncludeLine + "\r\n");
+        Assert.Equal(expected, File.ReadAllBytes(cfg));
+    }
+
+    [Fact]
+    public void Bom_IsPreserved_OnRewrite()
+    {
+        File.WriteAllBytes(cfg, [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes("Include: x.txt\r\n")]);
+        apo.EnsureCurvyInclude();
+        var b = File.ReadAllBytes(cfg);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, b[..3]);
+        Assert.Equal(0x49, b[3]);
+    }
+
+    [Fact]
+    public void FirstChange_CreatesBackupOfOriginalBytes_AndLaterChangeKeepsIt()
+    {
+        var orig = System.Text.Encoding.ASCII.GetBytes("Include: x.txt");
+        File.WriteAllBytes(cfg, orig);
+        apo.EnsureCurvyInclude();
+        Assert.Equal(orig, File.ReadAllBytes(cfg + ".curvy-backup"));
+        apo.SetLineDisabled(0, "Include: x.txt", true);
+        Assert.Equal(orig, File.ReadAllBytes(cfg + ".curvy-backup"));
+        Assert.True(apo.RestoreBackup());
+        Assert.Equal(orig, File.ReadAllBytes(cfg));
+        Assert.Empty(Directory.GetFiles(dir, "*.tmp"));
+    }
+
+    [Fact]
+    public void IsWritable_False_WhenDirMissing_AndDoesNotCreateIt()
+    {
+        var missing = Path.Combine(dir, "nope");
+        Assert.False(new ApoConfig(missing).IsWritable());
+        Assert.False(Directory.Exists(missing));
     }
 
     [Fact]
