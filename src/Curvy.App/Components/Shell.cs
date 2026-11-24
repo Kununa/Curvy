@@ -73,13 +73,12 @@ public sealed class Shell : EngineComponent
                     state.StartupError ?? "The engine couldn't start. Restart Curvy to try again.");
             return route switch
             {
-                Route.Universal => Placeholder("Universal preference",
-                    "A preference applied on top of every profile. Coming soon."),
+                Route.Universal => Component<UniversalPage, UniversalPageProps>(new UniversalPageProps(state)),
                 // Keyed by the route so a different query / target remounts with fresh state.
                 Route.AutoEq a => Component<AutoEqPage, AutoEqPageProps>(
                         new AutoEqPageProps(a.Query, a.ReplaceForProfileId, state, OpenProfile))
                     .WithKey($"autoeq:{a.Query}:{a.ReplaceForProfileId}"),
-                Route.Settings => Placeholder("Settings", "Coming soon."),
+                Route.Settings => Component<SettingsPage, SettingsPageProps>(new SettingsPageProps(state)),
                 Route.Profiles p => Component<ProfilesPage, ProfilesPageProps>(
                         new ProfilesPageProps(state, OpenAutoEq, p.Select))
                     .WithKey($"profiles:{p.Select}"),
@@ -100,6 +99,18 @@ public sealed class Shell : EngineComponent
         if (state.StartupError is { } startupError)
             bars.Add(InfoBar("Curvy couldn't start", startupError)
                 with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Error });
+        if (state.ReEnabledLines.Count > 0)
+            bars.Add(InfoBar("Another app re-enabled: " + string.Join(", ", state.ReEnabledLines.Select(l => l.Text.Trim()))
+                        + ". Effects may stack.", null)
+                with
+                {
+                    IsOpen = true,
+                    IsClosable = true,
+                    Severity = InfoBarSeverity.Warning,
+                    ActionButtonContent = "Disable again",
+                    OnActionButtonClick = host.DisableReEnabledLines,
+                    OnClosed = host.DismissReEnabledLines,
+                });
         if (state.UiError is { } uiError)
             bars.Add(InfoBar("Something went wrong", uiError)
                 with { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Error, OnClosed = host.DismissUiError });

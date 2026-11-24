@@ -32,6 +32,12 @@ public sealed class ApoConfig(string configDir)
         return new RawFile(lines, bom, utf8);
     }
 
+    /// <summary>
+    /// Raised (synchronously) right before Curvy writes <c>config.txt</c>, so a file watcher can
+    /// tell Curvy's own writes from other apps' changes. Not raised for <c>curvy.txt</c> or the backup.
+    /// </summary>
+    public event EventHandler? ConfigTxtWriting;
+
     public IReadOnlyList<ConfigLine> ReadConfigTxt() => ConfigTxt.Classify(ReadRaw().Lines);
 
     private void WriteLines(IEnumerable<string> lines, RawFile raw)
@@ -43,6 +49,7 @@ public sealed class ApoConfig(string configDir)
         var enc = raw.Utf8 ? StrictUtf8 : Latin1;
         var body = enc.GetBytes(sb.ToString());
         var bytes = raw.Bom ? [.. new byte[] { 0xEF, 0xBB, 0xBF }, .. body] : body;
+        ConfigTxtWriting?.Invoke(this, EventArgs.Empty);
         AtomicFile.WriteAllBytes(ConfigTxtPath, bytes);
     }
 
@@ -101,6 +108,7 @@ public sealed class ApoConfig(string configDir)
     public bool RestoreBackup()
     {
         if (!File.Exists(BackupPath)) return false;
+        ConfigTxtWriting?.Invoke(this, EventArgs.Empty);
         AtomicFile.CopyAtomic(BackupPath, ConfigTxtPath, overwrite: true);
         return true;
     }

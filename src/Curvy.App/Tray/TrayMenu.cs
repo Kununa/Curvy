@@ -27,7 +27,8 @@ public sealed class TrayMenu : Component<TrayMenuProps>
 
     public override Element Render()
     {
-        var tooltip = Props.MasterEnabled ? "Curvy - EQ on" : "Curvy - EQ off";
+        var activeName = Props.ActiveId is { } id ? Props.Profiles.FirstOrDefault(p => p.Id == id).Name : null;
+        var tooltip = Tooltip(activeName, Props.MasterEnabled);
         var tray = UseTrayIcon(new TrayIconSpec(Icon, tooltip, WindowKey.Of("curvy-tray")));
         var latest = UseRef(Props);
         latest.Current = Props;
@@ -47,6 +48,19 @@ public sealed class TrayMenu : Component<TrayMenuProps>
         }, tray);
 
         return Empty();
+    }
+
+    /// <summary>Win32 tray tooltips hold at most 127 characters (128 with the terminator).</summary>
+    public const int MaxTooltipLength = 127;
+
+    /// <summary><c>Curvy – &lt;active name | No profile | EQ off&gt;</c>, truncated to 127 characters.</summary>
+    public static string Tooltip(string? activeProfileName, bool masterEnabled)
+    {
+        var text = "Curvy – " + (!masterEnabled ? "EQ off" : activeProfileName ?? "No profile");
+        if (text.Length <= MaxTooltipLength) return text;
+        var cut = MaxTooltipLength - 1; // room for the ellipsis
+        if (char.IsHighSurrogate(text[cut - 1])) cut--; // don't split a surrogate pair
+        return text[..cut] + "…";
     }
 
     static Element BuildMenu(TrayMenuProps p, ReactorTrayIcon tray)

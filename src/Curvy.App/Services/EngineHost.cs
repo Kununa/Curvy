@@ -5,7 +5,9 @@ using Curvy.Core.Chain;
 using Curvy.Core.Engine;
 using Curvy.Core.Model;
 using Curvy.Core.Storage;
+using Curvy.Core.SystemIntegration;
 using Microsoft.UI.Dispatching;
+using Microsoft.Win32;
 using Microsoft.UI.Reactor.Core;
 
 namespace Curvy.App.Services;
@@ -15,6 +17,14 @@ namespace Curvy.App.Services;
 /// or the engine failed to start; pages must then stay inert. A new instance is created on every engine
 /// change, so Reactor's external-store comparison re-renders exactly when something changed.
 /// </summary>
+/// <param name="ReEnabledLines">
+/// config.txt lines Curvy had disabled that are active again (another app re-enabled them); shown
+/// as a warning until disabled again or dismissed. Never disabled automatically.
+/// </param>
+/// <param name="FirstRunLines">
+/// Non-null while the first-run dialog should be shown: the active EQ-like foreign lines found at startup.
+/// </param>
+/// <param name="Version">Increases with every published snapshot (e.g. to re-read config.txt).</param>
 public sealed record EngineState(
     bool ApoAvailable,
     bool Ready,
@@ -25,7 +35,10 @@ public sealed record EngineState(
     ChainResult Current,
     string? WriteError,
     string? StartupError,
-    string? UiError);
+    string? UiError,
+    IReadOnlyList<ConfigLine> ReEnabledLines,
+    IReadOnlyList<ConfigLine>? FirstRunLines,
+    long Version);
 
 /// <summary>
 /// Process-wide owner of the <see cref="CurvyEngine"/>. Everything runs on the UI thread
@@ -33,6 +46,11 @@ public sealed record EngineState(
 /// <see cref="Debounced"/> coalesces bursts (slider drags, graph drags) with a 150 ms
 /// <see cref="DispatcherQueueTimer"/>. Engine exceptions are caught and surfaced as
 /// <see cref="EngineState.UiError"/> so a failing handler never crashes the app.
+/// <para>
+/// A <see cref="FileSystemWatcher"/> on <c>config.txt</c> (500 ms debounce, see
+/// <see cref="ConfigChangeDebouncer"/>) runs <see cref="CurvyEngine.CheckAndRepair"/> on the UI
+/// thread after other apps change the file; changes within 1 s of Curvy's own config.txt writes are ignored.
+/// </para>
 /// </summary>
 public sealed class EngineHost
 {
@@ -47,6 +65,11 @@ public sealed class EngineHost
     readonly DispatcherQueue _dispatcher;
     readonly DispatcherQueueTimer _timer;
     readonly KeyedPending _pending = new();
+    ConfigChangeDebouncer? _configDebouncer;
+    FileSystemWatcher? _configWatcher;
+    IReadOnlyList<ConfigLine> _reEnabled = [];
+    IReadOnlyList<ConfigLine>? _firstRunLines;
+    long _version;
     AutoEqClient? _autoEq;
     AutoEqIndexLoader? _autoEqIndex;
     AutoEqCorrectionCache? _autoEqCorrections;
@@ -68,13 +91,25 @@ public sealed class EngineHost
         {
             try
             {
+                var apo = new ApoConfig(TriedPath!);
+                // Created first so Curvy's own startup writes are already marked as its own.
+                var debouncer = _configDebouncer = new ConfigChangeDebouncer(TimeProvider.System,
+                    () => _dispatcher.TryEnqueue(CheckConfig));
+                apo.ConfigTxtWriting += (_, _) => debouncer.NotifyOwnWrite();
                 _engine = new CurvyEngine(
                     new ProfileStore(CurvyPaths.ProfilesDir),
                     new SettingsStore(CurvyPaths.Root),
-                    new ApoConfig(TriedPath!));
+                    apo);
                 _engine.Changed += OnEngineChanged;
                 // Startup: make sure config.txt includes us and curvy.txt reflects the saved state.
                 _engine.Apply();
+                // Then look at the other lines: re-enabled ones (warning) and, once, the first-run dialog.
+                var health = _engine.CheckAndRepair();
+                _reEnabled = health.ReEnabledLines;
+                if (!_engine.Settings.FirstRunShown && health.ActiveEqLikeForeignLines.Count > 0)
+                    _firstRunLines = health.ActiveEqLikeForeignLines;
+                RefreshStartupRegistration();
+                StartWatcher(apo.ConfigTxtPath);
             }
             catch (Exception ex)
             {
@@ -92,7 +127,7 @@ public sealed class EngineHost
     public string? TriedPath { get; }
 
     /// <summary>
-    /// AutoEQ access (index + ParametricEQ files), cached on disk under <c>CurvyPaths.Rootutoeq</c>.
+    /// AutoEQ access (index + ParametricEQ files), cached on disk under <c>CurvyPaths.Root\autoeq</c>.
     /// One shared <see cref="HttpClient"/> for the process; created on first use.
     /// </summary>
     public AutoEqClient AutoEq => _autoEq ??= new AutoEqClient(
@@ -180,6 +215,140 @@ public sealed class EngineHost
         Run(() => action(Engine));
     }
 
+    // ── config.txt watcher ───────────────────────────────────────────────
+
+    void StartWatcher(string configTxtPath)
+    {
+        try
+        {
+            var w = new FileSystemWatcher(Path.GetDirectoryName(configTxtPath)!, Path.GetFileName(configTxtPath))
+            {
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+                IncludeSubdirectories = false,
+            };
+            // Raised on thread-pool threads; the debouncer is thread-safe and marshals to the UI thread.
+            var debouncer = _configDebouncer!;
+            FileSystemEventHandler changed = (_, _) => debouncer.NotifyChanged();
+            w.Changed += changed;
+            w.Created += changed;
+            w.Deleted += changed;
+            w.Renamed += (_, _) => debouncer.NotifyChanged();
+            w.Error += (_, e) =>
+            {
+                Debug.WriteLine($"Curvy: config.txt watcher error: {e.GetException()}");
+                debouncer.NotifyChanged(); // events may have been lost (buffer overflow): re-check
+            };
+            w.EnableRaisingEvents = true;
+            _configWatcher = w;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Debug.WriteLine($"Curvy: couldn't watch config.txt: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Debounced watcher callback (UI thread): re-adds Curvy's include if it was removed and reports
+    /// lines Curvy had disabled that another app re-enabled. Never disables anything itself.
+    /// </summary>
+    void CheckConfig()
+    {
+        if (_engine is null || _configWatcher is null) return; // not started, or shut down
+        Run(() =>
+        {
+            var health = _engine.CheckAndRepair();
+            _reEnabled = health.ReEnabledLines;
+            Publish(); // also refreshes pages that show config.txt
+        });
+    }
+
+    /// <summary>"Disable again" on the re-enabled warning: disables those lines (re-read, so indices are fresh).</summary>
+    public void DisableReEnabledLines() => Now(e =>
+    {
+        var health = e.CheckAndRepair();
+        _reEnabled = [];
+        if (health.ReEnabledLines.Count > 0) e.DisableForeignLines(health.ReEnabledLines.Select(l => l.Index));
+        Publish();
+    });
+
+    public void DismissReEnabledLines()
+    {
+        if (_reEnabled.Count == 0) return;
+        _reEnabled = [];
+        Publish();
+    }
+
+    /// <summary>
+    /// Closes the first-run dialog: disables the lines at <paramref name="disableIndices"/> (may be
+    /// empty) and records that the dialog was shown, even if disabling failed.
+    /// </summary>
+    public void CompleteFirstRun(IReadOnlyCollection<int> disableIndices)
+    {
+        _firstRunLines = null;
+        Now(e =>
+        {
+            try
+            {
+                if (disableIndices.Count > 0) e.DisableForeignLines(disableIndices);
+            }
+            finally
+            {
+                e.SetFirstRunShown(true);
+            }
+        });
+        Publish();
+    }
+
+    // ── Start with Windows ───────────────────────────────────────────────
+
+    static StartupRegistration Startup => new(Registry.CurrentUser);
+
+    static string? ExePath => Environment.ProcessPath;
+
+    /// <summary>True when the HKCU Run entry exists (the source of truth for the toggle).</summary>
+    public bool IsStartWithWindowsEnabled()
+    {
+        try
+        {
+            return Startup.IsEnabled();
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Debug.WriteLine($"Curvy: couldn't read the Run key: {ex}");
+            return false;
+        }
+    }
+
+    /// <summary>Writes or removes the HKCU Run entry and records the choice in the settings.</summary>
+    public void SetStartWithWindows(bool on) => Now(e =>
+    {
+        if (on) Startup.Enable(ExePath ?? throw new InvalidOperationException("Can't determine Curvy's executable path."));
+        else Startup.Disable();
+        e.SetStartWithWindows(on);
+    });
+
+    /// <summary>When enabled, rewrites the Run entry so it follows the exe if Curvy was moved.</summary>
+    void RefreshStartupRegistration()
+    {
+        if (_engine is not { Settings.StartWithWindows: true } || ExePath is not { } exe) return;
+        try
+        {
+            if (Startup.IsEnabled()) Startup.Enable(exe);
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Debug.WriteLine($"Curvy: couldn't refresh the Run key: {ex}");
+        }
+    }
+
+    /// <summary>Stops the config.txt watcher (on Exit).</summary>
+    public void Shutdown()
+    {
+        _configWatcher?.Dispose();
+        _configWatcher = null;
+        _configDebouncer?.Dispose();
+    }
+
     public void DismissUiError()
     {
         if (_uiError is null) return;
@@ -214,9 +383,10 @@ public sealed class EngineHost
     }
 
     EngineState Snapshot() => _engine is { } e
-        ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError, _startupError, _uiError)
+        ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError,
+            _startupError, _uiError, _reEnabled, _firstRunLines, ++_version)
         : new EngineState(ApoAvailable, false, TriedPath, [], CurvySettings.Default, null,
-            new ChainResult(true, 0, []), null, _startupError, _uiError);
+            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, ++_version);
 }
 
 /// <summary>The <c>UseEngine()</c> hook: current <see cref="EngineState"/>, re-rendering on every change.</summary>

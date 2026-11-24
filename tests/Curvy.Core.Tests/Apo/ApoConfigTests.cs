@@ -190,4 +190,22 @@ public sealed class ApoConfigTests : IDisposable
         }
         finally { Environment.SetEnvironmentVariable(ApoLocator.EnvOverride, old); }
     }
+
+    [Fact]
+    public void ConfigTxtWriting_RaisedBeforeEachConfigTxtWrite_Only()
+    {
+        File.WriteAllText(cfg, "Include: peace.txt\r\n");
+        var raised = 0;
+        apo.ConfigTxtWriting += (_, _) => raised++;
+        Assert.True(apo.EnsureCurvyInclude());
+        Assert.Equal(1, raised);
+        Assert.False(apo.EnsureCurvyInclude()); // nothing to write
+        Assert.Equal(1, raised);
+        apo.SetLineDisabled(0, "Include: peace.txt", true);
+        Assert.Equal(2, raised);
+        Assert.True(apo.RestoreBackup());
+        Assert.Equal(3, raised);
+        apo.WriteOutput(new ChainResult(false, 0, ImmutableList<Filter>.Empty)); // curvy.txt, not config.txt
+        Assert.Equal(3, raised);
+    }
 }

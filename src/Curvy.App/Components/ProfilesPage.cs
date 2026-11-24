@@ -35,7 +35,7 @@ public sealed class ProfilesPage : Component<ProfilesPageProps>
 
         void NewBlank()
         {
-            var p = Profile.New(UniqueName(profiles, "New profile"));
+            var p = Profile.New(ProfileNames.Unique(profiles, "New profile"));
             host.Now(e => e.SaveProfile(p));
             setSelectedId(p.Id);
         }
@@ -79,19 +79,12 @@ public sealed class ProfilesPage : Component<ProfilesPageProps>
                     state.ActiveProfile?.Name,
                     Props.OnOpenAutoEq,
                     id => setSelectedId(id),
-                    UniqueName(profiles, selected.Name + " (copy)")))
+                    ProfileNames.Unique(profiles, selected.Name + " (copy)")))
                 .WithKey(selected.Id.ToString());
 
         return FlexRow(list, Border(editor).Flex(grow: 1, basis: 0));
     }
 
-    static string UniqueName(IReadOnlyList<Profile> profiles, string baseName)
-    {
-        var name = baseName;
-        for (var n = 2; profiles.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)); n++)
-            name = $"{baseName} {n}";
-        return name;
-    }
 }
 
 public record ProfileEditorProps(

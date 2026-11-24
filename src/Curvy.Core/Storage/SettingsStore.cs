@@ -18,7 +18,7 @@ public sealed class SettingsStore(string dir)
             if (!File.Exists(FilePath)) return CurvySettings.Default;
             var w = JsonSerializer.Deserialize<Wrapper>(File.ReadAllText(FilePath), JsonFiles.Options);
             if (w?.Settings is null || w.SchemaVersion > JsonFiles.CurrentSchemaVersion) return CurvySettings.Default;
-            return w.Settings;
+            return Normalize(w.Settings);
         }
         catch (Exception ex)
         {
@@ -26,6 +26,17 @@ public sealed class SettingsStore(string dir)
             return CurvySettings.Default;
         }
     }
+
+    /// <summary>
+    /// Properties missing from older files deserialize as null (positional record); replace those
+    /// with their defaults so callers never see a null <see cref="CurvySettings.Universal"/> or
+    /// <see cref="CurvySettings.DisabledForeignLines"/>.
+    /// </summary>
+    private static CurvySettings Normalize(CurvySettings s) => s with
+    {
+        Universal = s.Universal ?? Preference.Empty,
+        DisabledForeignLines = s.DisabledForeignLines ?? [],
+    };
 
     public void Save(CurvySettings s)
     {

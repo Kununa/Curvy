@@ -114,7 +114,7 @@ public sealed class StorageTests : IDisposable
         var store = new SettingsStore(_dir);
         var s = new CurvySettings(1, Guid.NewGuid(), false,
             new Preference(new ToneControls(BassDb: 3), ImmutableList.Create(new Filter(FilterType.Peaking, 1000, 2, 1)), true),
-            1.5, true, ["Include foo.txt", "Preamp: 3 dB"]);
+            1.5, true, ["Include foo.txt", "Preamp: 3 dB"], FirstRunShown: true);
         store.Save(s);
         var l = store.Load();
         Assert.Equal(s.ActiveProfileId, l.ActiveProfileId);
@@ -122,7 +122,40 @@ public sealed class StorageTests : IDisposable
         Assert.Equal(s.ExtraHeadroomDb, l.ExtraHeadroomDb);
         Assert.Equal(s.StartWithWindows, l.StartWithWindows);
         Assert.True(s.DisabledForeignLines.SequenceEqual(l.DisabledForeignLines));
+        Assert.True(l.FirstRunShown);
         AssertPreferenceEqual(s.Universal, l.Universal);
+    }
+
+    [Fact]
+    public void Settings_MissingNewerProperties_LoadWithDefaults()
+    {
+        // A settings.json from before firstRunShown / universal / disabledForeignLines existed.
+        var id = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), $$"""
+            { "schemaVersion": 1, "settings": { "schemaVersion": 1, "activeProfileId": "{{id}}",
+              "masterEnabled": false, "extraHeadroomDb": 2, "startWithWindows": true } }
+            """);
+        var l = new SettingsStore(_dir).Load();
+        Assert.Equal(id, l.ActiveProfileId);
+        Assert.False(l.MasterEnabled);
+        Assert.Equal(2, l.ExtraHeadroomDb);
+        Assert.True(l.StartWithWindows);
+        Assert.False(l.FirstRunShown);
+        Assert.Same(Preference.Empty, l.Universal);
+        Assert.NotNull(l.DisabledForeignLines);
+        Assert.Empty(l.DisabledForeignLines);
+    }
+
+    [Fact]
+    public void Settings_NullUniversalAndLines_AreNormalized()
+    {
+        File.WriteAllText(Path.Combine(_dir, "settings.json"), """
+            { "schemaVersion": 1, "settings": { "schemaVersion": 1, "masterEnabled": true,
+              "universal": null, "disabledForeignLines": null } }
+            """);
+        var l = new SettingsStore(_dir).Load();
+        Assert.Same(Preference.Empty, l.Universal);
+        Assert.Empty(l.DisabledForeignLines);
     }
 
     [Fact]

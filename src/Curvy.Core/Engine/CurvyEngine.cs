@@ -45,6 +45,25 @@ public sealed class CurvyEngine
         Apply();
     }
 
+    /// <summary>Saves settings that don't affect the EQ chain (no curvy.txt rewrite).</summary>
+    private void Persist(CurvySettings s)
+    {
+        _settings.Save(s);
+        Settings = s;
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Full path of Equalizer APO's <c>config.txt</c>.</summary>
+    public string ConfigTxtPath => _apo.ConfigTxtPath;
+
+    /// <summary>Reads and classifies <c>config.txt</c> as it is on disk now.</summary>
+    public IReadOnlyList<ConfigLine> ReadConfigLines() => _apo.ReadConfigTxt();
+
+    public void SetFirstRunShown(bool shown) => Persist(Settings with { FirstRunShown = shown });
+
+    /// <summary>Records the "Start with Windows" choice (the Run key itself is the app's job).</summary>
+    public void SetStartWithWindows(bool on) => Persist(Settings with { StartWithWindows = on });
+
     public void Activate(Guid? id) =>
         Mutate(Settings with { ActiveProfileId = id is { } g && _list.Any(p => p.Id == g) ? g : null });
 
@@ -132,5 +151,34 @@ public sealed class CurvyEngine
             if (disabled.Count != Settings.DisabledForeignLines.Count)
                 Mutate(Settings with { DisabledForeignLines = disabled });
         }
+    }
+
+    /// <summary>
+    /// Re-enables a line Curvy disabled (<c># [Curvy] </c> prefix) and stops tracking it, so the
+    /// watcher doesn't report the user's own choice as "another app re-enabled it".
+    /// <paramref name="expectedText"/> is the line as read (with or without the prefix); throws
+    /// <see cref="InvalidOperationException"/> if <c>config.txt</c> changed meanwhile.
+    /// </summary>
+    public void EnableForeignLine(int index, string expectedText)
+    {
+        _apo.SetLineDisabled(index, expectedText, false);
+        var text = (expectedText.StartsWith(ConfigTxt.DisabledPrefix, StringComparison.Ordinal)
+            ? expectedText[ConfigTxt.DisabledPrefix.Length..]
+            : expectedText).Trim();
+        var remaining = Settings.DisabledForeignLines.Remove(text);
+        if (remaining != Settings.DisabledForeignLines) Persist(Settings with { DisabledForeignLines = remaining });
+        else Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Restores <c>config.txt</c> from the backup taken before Curvy's first change, forgets the
+    /// lines Curvy disabled (they're active again) and re-applies, which re-adds Curvy's include.
+    /// Returns false (and changes nothing) when there is no backup.
+    /// </summary>
+    public bool RestoreOriginalConfig()
+    {
+        if (!_apo.RestoreBackup()) return false;
+        Mutate(Settings with { DisabledForeignLines = [] });
+        return true;
     }
 }

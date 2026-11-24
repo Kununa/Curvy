@@ -37,7 +37,16 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
 {
     const string UnavailableText = "Can't reach AutoEQ. Check your connection.";
 
-    sealed record IndexState(IReadOnlyList<AutoEqIndexEntry>? Index, bool Loading, string? Error, DateTimeOffset? FetchedAt);
+    sealed record IndexState(
+        IReadOnlyList<AutoEqIndexEntry>? Index, bool Loading, string? Error, DateTimeOffset? FetchedAt, string? StaleWarning = null);
+
+    /// <summary>
+    /// Shown when a forced refresh fell back to the cached index (the client serves the stale
+    /// cache instead of failing; detected by <see cref="AutoEqClient.IndexFetchedAt"/> not changing).
+    /// </summary>
+    public static string StaleRefreshMessage(DateTimeOffset? fetchedAt) => fetchedAt is { } at
+        ? $"Couldn't refresh; showing the index from {at.LocalDateTime:d}."
+        : "Couldn't refresh; showing the cached index.";
 
     sealed record PreviewState(AutoEqIndexEntry Entry, AutoEqCorrection? Correction);
 
@@ -72,7 +81,8 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
         async Task LoadIndexAsync(bool forceRefresh, CancellationToken ct)
         {
             if (forceRefresh || host.AutoEqIndex.Current is null)
-                updateIndex(s => s with { Loading = true, Error = null });
+                updateIndex(s => s with { Loading = true, Error = null, StaleWarning = null });
+            var before = forceRefresh ? host.AutoEq.IndexFetchedAt : null;
             try
             {
                 var loaded = await host.AutoEqIndex.LoadAsync(forceRefresh).WaitAsync(ct);
@@ -81,7 +91,8 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                     if (forceRefresh) host.AutoEqCorrections.Clear();
                     if (ct.IsCancellationRequested) return;
                     var fetchedAt = host.AutoEq.IndexFetchedAt;
-                    updateIndex(_ => new IndexState(loaded, false, null, fetchedAt));
+                    var stale = forceRefresh && fetchedAt == before ? StaleRefreshMessage(fetchedAt) : null;
+                    updateIndex(_ => new IndexState(loaded, false, null, fetchedAt, stale));
                 });
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -175,11 +186,12 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
             {
                 host.Post(() =>
                 {
+                    // Superseded by another preview (or the page went away): not this preview's error to show.
                     if (ct.IsCancellationRequested || previewWanted.Current != entry) return;
                     previewWanted.Current = null;
                     updatePreview(_ => null);
+                    HandleFetchFailure(ex, ct);
                 });
-                HandleFetchFailure(ex, ct);
             }
         }
 
@@ -209,15 +221,16 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                     }
                     else
                     {
-                        var profile = Profile.New(entry.Name, correction);
-                        var created = false;
+                        Guid? createdId = null;
                         host.Now(e =>
                         {
+                            // Named after the engine's current list (after Now's flush), e.g. "HD 600 2".
+                            var profile = Profile.New(ProfileNames.Unique(e.Profiles, entry.Name), correction);
                             e.SaveProfile(profile);
-                            created = true;
+                            createdId = profile.Id;
                             e.Activate(profile.Id);
                         });
-                        if (created) props.OnOpenProfile(profile.Id);
+                        if (createdId is { } newId) props.OnOpenProfile(newId);
                     }
                 });
             }
@@ -312,6 +325,15 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                 OnActionButtonClick = () => LoadIndex(forceRefresh: index.Index is not null),
             }
             : null;
+        Element? staleBar = index.StaleWarning is { } staleText && index.Error is null
+            ? InfoBar(null, staleText) with
+            {
+                IsOpen = true,
+                IsClosable = true,
+                Severity = InfoBarSeverity.Warning,
+                OnClosed = () => updateIndex(s => s with { StaleWarning = null }),
+            }
+            : null;
         Element? fetchBar = fetchError is { } fe
             ? InfoBar("Couldn't fetch the correction", fe) with
             {
@@ -345,6 +367,7 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                     .AutomationName("Search AutoEQ headphones")
                     .Flex(shrink: 0),
                 indexBar?.Flex(shrink: 0),
+                staleBar?.Flex(shrink: 0),
                 fetchBar?.Flex(shrink: 0),
                 graphArea.Flex(shrink: 0),
                 resultsArea.Flex(grow: 1, basis: 0),

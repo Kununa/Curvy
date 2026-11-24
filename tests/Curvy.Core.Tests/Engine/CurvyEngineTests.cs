@@ -235,4 +235,94 @@ public sealed class CurvyEngineTests : IDisposable
         e.SetExtraHeadroom(-3);
         Assert.Equal(0, e.Settings.ExtraHeadroomDb);
     }
+
+    [Fact]
+    public void SetFirstRunShown_Persists_WithoutRewritingOutput()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var path = NewApo().OutputPath;
+        var stamp = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, stamp);
+        var raised = 0;
+        e.Changed += (_, _) => raised++;
+        e.SetFirstRunShown(true);
+        Assert.True(e.Settings.FirstRunShown);
+        Assert.True(new SettingsStore(SetDir).Load().FirstRunShown);
+        Assert.Equal(stamp, File.GetLastWriteTimeUtc(path));
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void SetStartWithWindows_Persists()
+    {
+        var e = NewEngine();
+        e.SetStartWithWindows(true);
+        Assert.True(e.Settings.StartWithWindows);
+        Assert.True(new SettingsStore(SetDir).Load().StartWithWindows);
+        e.SetStartWithWindows(false);
+        Assert.False(new SettingsStore(SetDir).Load().StartWithWindows);
+    }
+
+    [Fact]
+    public void EnableForeignLine_ReEnablesIt_AndForgetsIt()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
+        e.DisableForeignLines([idx]);
+        var disabled = NewApo().ReadConfigTxt()[idx];
+        Assert.Equal(ConfigLineKind.CurvyDisabled, disabled.Kind);
+
+        e.EnableForeignLine(idx, disabled.Text);
+
+        Assert.Equal(ConfigLineKind.Active, NewApo().ReadConfigTxt()[idx].Kind);
+        Assert.Empty(e.Settings.DisabledForeignLines);
+        Assert.Empty(new SettingsStore(SetDir).Load().DisabledForeignLines);
+        Assert.Empty(e.CheckAndRepair().ReEnabledLines); // a deliberate re-enable is not "another app"
+    }
+
+    [Fact]
+    public void EnableForeignLine_Throws_WhenFileChanged()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
+        e.DisableForeignLines([idx]);
+        Assert.Throws<InvalidOperationException>(() => e.EnableForeignLine(idx, "# [Curvy] Include: other.txt"));
+        Assert.Equal(["Include: peace.txt"], e.Settings.DisabledForeignLines);
+    }
+
+    [Fact]
+    public void ReadConfigLines_And_ConfigTxtPath_ExposeConfig()
+    {
+        var e = NewEngine();
+        Assert.Equal(NewApo().ConfigTxtPath, e.ConfigTxtPath);
+        Assert.Equal("Include: peace.txt", e.ReadConfigLines()[0].Text);
+    }
+
+    [Fact]
+    public void RestoreOriginalConfig_RestoresBackup_ForgetsDisabledLines_AndReAddsInclude()
+    {
+        var e = NewEngine();
+        e.Apply(); // first config.txt write backs up the original
+        var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
+        e.DisableForeignLines([idx]);
+
+        Assert.True(e.RestoreOriginalConfig());
+
+        var lines = NewApo().ReadConfigTxt();
+        Assert.Contains(lines, l => l.Kind == ConfigLineKind.Active && l.Text == "Include: peace.txt");
+        Assert.Contains(lines, l => l.Kind == ConfigLineKind.CurvyInclude);
+        Assert.Empty(e.Settings.DisabledForeignLines);
+        Assert.Empty(e.CheckAndRepair().ReEnabledLines);
+    }
+
+    [Fact]
+    public void RestoreOriginalConfig_ReturnsFalse_WithoutBackup()
+    {
+        var e = NewEngine();
+        Assert.False(e.RestoreOriginalConfig());
+        Assert.Equal("Include: peace.txt\r\n", File.ReadAllText(NewApo().ConfigTxtPath));
+    }
 }
