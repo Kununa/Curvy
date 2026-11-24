@@ -40,12 +40,13 @@ public sealed class CurvyEngine
 
     private void Mutate(CurvySettings s)
     {
-        Settings = s;
         _settings.Save(s);
+        Settings = s;
         Apply();
     }
 
-    public void Activate(Guid? id) => Mutate(Settings with { ActiveProfileId = id });
+    public void Activate(Guid? id) =>
+        Mutate(Settings with { ActiveProfileId = id is { } g && _list.Any(p => p.Id == g) ? g : null });
 
     public void SetMasterEnabled(bool on) => Mutate(Settings with { MasterEnabled = on });
 
@@ -59,7 +60,8 @@ public sealed class CurvyEngine
         var stamped = p with { Modified = DateTimeOffset.UtcNow };
         _profiles.Save(stamped);
         _list = Sort(_list.Where(x => x.Id != stamped.Id).Append(stamped));
-        Mutate(Settings);
+        if (stamped.Id == Settings.ActiveProfileId) Apply();
+        else Changed?.Invoke(this, EventArgs.Empty);
     }
 
     public void DeleteProfile(Guid id)
@@ -87,28 +89,48 @@ public sealed class CurvyEngine
 
     public ConfigHealth CheckAndRepair()
     {
-        var repaired = _apo.EnsureCurvyInclude();
-        var lines = _apo.ReadConfigTxt();
-        var remembered = Settings.DisabledForeignLines;
-        var reEnabled = lines
-            .Where(l => l.Kind == ConfigLineKind.Active && remembered.Contains(l.Text.Trim()))
-            .ToList();
-        var eqLike = lines.Where(l => l.Kind == ConfigLineKind.Active && l.IsEqLike).ToList();
-        return new ConfigHealth(repaired, reEnabled, eqLike);
+        try
+        {
+            var repaired = _apo.EnsureCurvyInclude();
+            var lines = _apo.ReadConfigTxt();
+            var remembered = Settings.DisabledForeignLines;
+            var reEnabled = lines
+                .Where(l => l.Kind == ConfigLineKind.Active && remembered.Contains(l.Text.Trim()))
+                .ToList();
+            var eqLike = lines.Where(l => l.Kind == ConfigLineKind.Active && l.IsEqLike).ToList();
+            return new ConfigHealth(repaired, reEnabled, eqLike);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LastError = ex.Message;
+            return new ConfigHealth(false, [], []);
+        }
     }
 
     public void DisableForeignLines(IEnumerable<int> indices)
     {
-        _apo.BackupOnce();
+        var wanted = indices.Distinct().ToList();
         var lines = _apo.ReadConfigTxt();
-        var disabled = Settings.DisabledForeignLines;
-        foreach (var i in indices.Distinct())
+        foreach (var i in wanted)
         {
-            var line = lines[i];
-            _apo.SetLineDisabled(i, line.Text, true);
-            var t = line.Text.Trim();
-            if (!disabled.Contains(t)) disabled = disabled.Add(t);
+            if (i < 0 || i >= lines.Count || lines[i].Kind != ConfigLineKind.Active)
+                throw new ArgumentException($"Line {i} is not an active config.txt line.", nameof(indices));
         }
-        Mutate(Settings with { DisabledForeignLines = disabled });
+        _apo.BackupOnce();
+        var disabled = Settings.DisabledForeignLines;
+        try
+        {
+            foreach (var i in wanted)
+            {
+                _apo.SetLineDisabled(i, lines[i].Text, true);
+                var t = lines[i].Text.Trim();
+                if (!disabled.Contains(t)) disabled = disabled.Add(t);
+            }
+        }
+        finally
+        {
+            if (disabled.Count != Settings.DisabledForeignLines.Count)
+                Mutate(Settings with { DisabledForeignLines = disabled });
+        }
     }
 }

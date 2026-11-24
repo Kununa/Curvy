@@ -92,7 +92,6 @@ public sealed class CurvyEngineTests : IDisposable
     public void DisableForeignLines_BacksUpFirst_AndRemembersText()
     {
         var e = NewEngine();
-        e.Apply();
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         e.DisableForeignLines([idx]);
         Assert.True(File.Exists(NewApo().ConfigTxtPath + ".curvy-backup"));
@@ -153,6 +152,87 @@ public sealed class CurvyEngineTests : IDisposable
         e.Changed += (_, _) => raised++;
         e.Apply();
         Assert.NotNull(e.LastError);
-        Assert.True(raised >= 1);
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void DisableForeignLines_RejectsNonActiveOrOutOfRange_WithoutWriting()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var before = File.ReadAllText(NewApo().ConfigTxtPath);
+        var includeIdx = NewApo().ReadConfigTxt().First(l => l.Kind == ConfigLineKind.CurvyInclude).Index;
+        var peace = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
+        Assert.Throws<ArgumentException>(() => e.DisableForeignLines([peace, includeIdx]));
+        Assert.Throws<ArgumentException>(() => e.DisableForeignLines([peace, 99]));
+        Assert.Equal(before, File.ReadAllText(NewApo().ConfigTxtPath));
+        Assert.Empty(e.Settings.DisabledForeignLines);
+    }
+
+    // A deterministic mid-loop failure cannot be injected (indices are validated up front and
+    // SetLineDisabled re-reads the file); the finally-persist path is covered by the success case.
+    [Fact]
+    public void DisableForeignLines_RecordsEachLineAndRaisesChanged()
+    {
+        File.WriteAllText(NewApo().ConfigTxtPath, "Include: a.txt\r\nInclude: b.txt\r\n");
+        var e = NewEngine();
+        var raised = 0;
+        e.Changed += (_, _) => raised++;
+        e.DisableForeignLines([0, 1]);
+        Assert.Equal(["Include: a.txt", "Include: b.txt"], e.Settings.DisabledForeignLines);
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void CheckAndRepair_RecordsLastError_OnIoFailure()
+    {
+        var e = NewEngine();
+        using var hold = new FileStream(NewApo().ConfigTxtPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var h = e.CheckAndRepair();
+        Assert.False(h.RepairedInclude);
+        Assert.Empty(h.ReEnabledLines);
+        Assert.Empty(h.ActiveEqLikeForeignLines);
+        Assert.NotNull(e.LastError);
+    }
+
+    [Fact]
+    public void Activate_UnknownId_TreatedAsNoProfile()
+    {
+        var e = NewEngine();
+        e.Activate(Guid.NewGuid());
+        Assert.Null(e.Settings.ActiveProfileId);
+        Assert.Null(new SettingsStore(SetDir).Load().ActiveProfileId);
+    }
+
+    [Fact]
+    public void SaveProfile_Inactive_DoesNotRewriteOutput_ButRaisesChanged()
+    {
+        var e = NewEngine();
+        e.Apply();
+        var path = NewApo().OutputPath;
+        File.SetLastWriteTimeUtc(path, new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var raised = 0;
+        e.Changed += (_, _) => raised++;
+        e.SaveProfile(WithFilter("B", 500));
+        Assert.Equal(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(path));
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void Profiles_SortedByName_IgnoringCase()
+    {
+        var e = NewEngine();
+        e.SaveProfile(WithFilter("charlie", 1000));
+        e.SaveProfile(WithFilter("Alpha", 1000));
+        e.SaveProfile(WithFilter("bravo", 1000));
+        Assert.Equal(["Alpha", "bravo", "charlie"], e.Profiles.Select(p => p.Name));
+    }
+
+    [Fact]
+    public void SetExtraHeadroom_ClampsNegativeToZero()
+    {
+        var e = NewEngine();
+        e.SetExtraHeadroom(-3);
+        Assert.Equal(0, e.Settings.ExtraHeadroomDb);
     }
 }
