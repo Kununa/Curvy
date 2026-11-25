@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Tray glyph (monochrome, no tile). Rendered white for a dark taskbar and #1A1A1A for a light
+       one; the "EQ off" state is the same glyph at ~40% opacity. -->
+  <path d="M24 84 C 64 84 72 166 104 166 C 140 166 150 76 184 76 C 206 76 216 102 232 112"
+        fill="none" stroke="currentColor" stroke-width="38" stroke-linecap="round"/>
+</svg>

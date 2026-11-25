@@ -437,6 +437,8 @@ test-results/
 
 # Icon must end with two \r
 Icon
+# ...but the macOS rule above (its \r were lost) would also hide the app icon sources:
+!src/Curvy.App/Assets/Icon/
 
 
 # Thumbnails

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Curvy app icon, small sizes (32 px and below): tile fills the frame, no baseline, thicker
+       line with more amplitude, so the curve stays crisp instead of blurring into the tile. -->
+  <defs>
+    <linearGradient id="line" x1="32" y1="0" x2="224" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#161A23"/>
+  <path d="M36 88 C 72 88 78 158 108 158 C 142 158 152 82 182 82 C 202 82 210 104 222 114"
+        fill="none" stroke="url(#line)" stroke-width="34" stroke-linecap="round"/>
+</svg>

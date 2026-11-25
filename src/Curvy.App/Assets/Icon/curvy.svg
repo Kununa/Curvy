@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Curvy app icon, large sizes (48 px and up). Source of truth for the .ico / tile images. -->
+  <defs>
+    <linearGradient id="line" x1="40" y1="0" x2="216" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#161A23"/>
+  <!-- 0 dB reference line, so the shape reads as a frequency response. -->
+  <path d="M36 148 H220" stroke="#2C3445" stroke-width="6" stroke-linecap="round"/>
+  <!-- EQ response: bass shelf, settles onto 0 dB, treble peak, slight roll-off. -->
+  <path d="M40 96 C 72 96 80 148 110 148 C 142 148 152 92 178 92 C 196 92 204 110 216 118"
+        fill="none" stroke="url(#line)" stroke-width="22" stroke-linecap="round"/>
+</svg>
