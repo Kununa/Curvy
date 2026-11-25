@@ -35,6 +35,15 @@ public record Preference(
 
     public static Preference Empty { get; } = new(new ToneControls(), DefaultBands, true);
 
+    /// <summary>
+    /// Bands at the frequencies of <paramref name="filters"/> (e.g. an AutoEQ correction): same type and Q,
+    /// 0 dB, frequency locked, sorted by frequency, so only the gains are left to adjust.
+    /// </summary>
+    public static ImmutableList<Filter> BandsAt(IEnumerable<Filter> filters) =>
+        filters.OrderBy(f => f.FrequencyHz)
+            .Select(f => new Filter(f.Type, f.FrequencyHz, 0, f.Q, Enabled: true, FrequencyLocked: true))
+            .ToImmutableList();
+
     /// <summary>The bands the user can edit right now (empty when disabled or in simple mode).</summary>
     public ImmutableList<Filter> ActiveBands =>
         Enabled && EffectiveMode == PreferenceMode.Parametric ? Bands : [];

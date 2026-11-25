@@ -77,7 +77,9 @@ public sealed class UniversalPage : Component<UniversalPageProps>
                 Caption(totalNote).Flex(shrink: 0),
                 ScrollView(
                         Card(Component<PreferenceEditor, PreferenceEditorProps>(
-                                new PreferenceEditorProps(pref, Update)))
+                                // Frequencies to copy: the active profile's AutoEQ correction.
+                                new PreferenceEditorProps(pref, Update, "Preference",
+                                    active is { AutoEqEnabled: true } ? active.AutoEq?.Filters : null)))
                             .Margin(0, 0, 16, 16))
                     .Flex(grow: 1, basis: 0)) with { RowGap = 12 })
             .FlexPadding(16);

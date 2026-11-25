@@ -289,7 +289,8 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
                         .VAlign(VerticalAlignment.Center)))),
             Card(autoEq),
             Card(Component<PreferenceEditor, PreferenceEditorProps>(new PreferenceEditorProps(
-                p.Preference, pref => Update(x => x with { Preference = pref }), "Profile preference"))));
+                p.Preference, pref => Update(x => x with { Preference = pref }), "Profile preference",
+                p.AutoEqEnabled ? p.AutoEq?.Filters : null))));
 
         return (FlexColumn(
                 header.Flex(shrink: 0),

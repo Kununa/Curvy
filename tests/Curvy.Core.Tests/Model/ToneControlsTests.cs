@@ -76,4 +76,18 @@ public class ToneControlsTests
         await Assert.That(p.Preference.Enabled).IsFalse();
         await Assert.That(p.Preference.Bands.Count).IsEqualTo(Preference.DefaultBands.Count);
     }
+
+    [Test]
+    public async Task BandsAt_CopiesTypeFrequencyAndQ_FlatAndLocked_SortedByFrequency()
+    {
+        var bands = Preference.BandsAt([
+            new Filter(FilterType.HighShelf, 10000, -3.1, 0.7),
+            new Filter(FilterType.LowShelf, 105, 6.5, 0.7, Enabled: false),
+            new Filter(FilterType.Peaking, 2000, 2, 1.4),
+        ]);
+        await Assert.That(bands.Select(b => b.FrequencyHz).ToList()).IsEquivalentTo([105.0, 2000.0, 10000.0]);
+        await Assert.That(bands[0].Type).IsEqualTo(FilterType.LowShelf);
+        await Assert.That(bands[1].Q).IsEqualTo(1.4);
+        await Assert.That(bands.All(b => b.GainDb == 0 && b.Enabled && b.FrequencyLocked)).IsTrue();
+    }
 }

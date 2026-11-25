@@ -72,7 +72,7 @@ public sealed class StorageTests : IDisposable
         var corr = new AutoEqCorrection(src, ImmutableList.Create(
             new Filter(FilterType.LowShelf, 105, 4.5, 0.7), new Filter(FilterType.Peaking, 2000, -3.2, 1.4, false)));
         var pref = new Preference(new ToneControls(BassDb: 2, TiltDb: -1),
-            ImmutableList.Create(new Filter(FilterType.HighShelf, 8000, 1.5, 0.7)), true);
+            ImmutableList.Create(new Filter(FilterType.HighShelf, 8000, 1.5, 0.7, FrequencyLocked: true)), true);
         return new Profile(Guid.NewGuid(), name, corr, true, pref, true,
             DateTimeOffset.Parse("2026-02-01T00:00:00+00:00"), DateTimeOffset.Parse("2026-03-01T00:00:00+00:00"));
     }

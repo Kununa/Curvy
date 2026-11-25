@@ -3,6 +3,7 @@ using Curvy.Core.Filters;
 using Curvy.Core.Model;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
+using Microsoft.UI.Reactor.Layout;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Globalization.NumberFormatting;
@@ -12,7 +13,12 @@ using static Curvy.App.Components.ProfileButtons;
 namespace Curvy.App.Components;
 
 /// <param name="Title">Section header; the enable switch sits right next to it.</param>
-public record PreferenceEditorProps(Preference Value, Action<Preference> OnChange, string Title = "Preference");
+/// <param name="AutoEqFilters">
+/// The AutoEQ correction to offer "Copy AutoEQ frequencies" from (null or empty: no button).
+/// </param>
+public record PreferenceEditorProps(
+    Preference Value, Action<Preference> OnChange, string Title = "Preference",
+    IReadOnlyList<Filter>? AutoEqFilters = null);
 
 /// <summary>Limits applied wherever the UI edits a filter or tone control.</summary>
 public static class EqLimits
@@ -42,6 +48,8 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
 
     public static readonly Filter DefaultBand = new(FilterType.Peaking, 1000, 0, 1);
 
+    const int LockColumn = 3;
+
     static readonly PreferenceMode[] Modes = [PreferenceMode.Simple, PreferenceMode.Parametric];
     static readonly SelectorBarItemData[] ModeTabs = [SelectorBarItem("Simple"), SelectorBarItem("Parametric")];
 
@@ -54,6 +62,7 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
         var onChange = Props.OnChange;
         var value = Props.Value;
         var tone = value.Tone;
+        var (confirmCopy, setConfirmCopy) = UseState(false);
 
         void Edit(Func<Preference, Preference> f)
         {
@@ -83,16 +92,47 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
             Component<NumField, NumFieldProps>(new NumFieldProps(header, v, min, max, step, set, width, automationLabel));
 
         // Compact table: one row per band under a single header line.
-        // [on] [type ▾] [Hz] [Gain dB] [Q] [🗑]
+        // [on] [type ▾] [Hz][lock] [Gain dB] [Q] [🗑]
+        // The lock column is fixed width (not Auto): the header row has no cell there, and an Auto
+        // column would collapse in it and shift the Gain/Q captions.
         GridSize[] bandColumns =
         [
-            GridSize.Px(32), GridSize.Px(124), GridSize.Px(120), GridSize.Px(104), GridSize.Px(96), GridSize.Auto, // Auto: the icon button sizes itself
+            GridSize.Px(32), GridSize.Px(124), GridSize.Px(120), GridSize.Px(44), GridSize.Px(104), GridSize.Px(96),
+            GridSize.Auto, // Auto: the remove button sizes itself (last column, nothing to misalign)
         ];
         Element Cell(Element e, int column) =>
-            e.Margin(column == 0 ? 0 : 4, 0, 4, 0).VAlign(VerticalAlignment.Center).Grid(row: 0, column: column);
+            e.Margin(column is 0 or LockColumn ? 0 : 4, 0, 4, 0).VAlign(VerticalAlignment.Center).Grid(row: 0, column: column);
+
+        // Column headers with an info glyph; hovering shows what the value does.
+        static Element Header(string text, string help) =>
+            // Both line boxes trimmed to what's drawn (cap height / glyph), so centring them lines the
+            // icon up with the letters instead of with the text's descender space.
+            HStack(4,
+                    Caption(text)
+                        .Set(t => t.TextLineBounds = TextLineBounds.TrimToCapHeight)
+                        .VAlign(VerticalAlignment.Center),
+                    TextBlock("") // Info
+                        .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
+                        .FontSize(12)
+                        .Opacity(0.7)
+                        .Set(t => t.TextLineBounds = TextLineBounds.Tight)
+                        .VAlign(VerticalAlignment.Center))
+                .ToolTip(help)
+                .AutomationName($"{text}: {help}");
 
         var bandHeader = Grid(bandColumns, [GridSize.Auto],
-            Cell(Caption("Type"), 1), Cell(Caption("Hz"), 2), Cell(Caption("Gain dB"), 3), Cell(Caption("Q"), 4));
+            Cell(Header("Type",
+                "Shape of the filter. Peak boosts or cuts a range around the frequency. "
+                + "Low shelf changes everything below it, high shelf everything above it."), 1),
+            Cell(Header("Hz",
+                "Frequency the filter works at: the centre of a peak, or the corner of a shelf. "
+                + "Bass is roughly 20–250 Hz, mids 250 Hz–4 kHz, treble above."), 2),
+            Cell(Header("Gain dB",
+                "How much to boost (+) or cut (−). About +6 dB is twice the amplitude; small steps of 1–3 dB "
+                + "are usually enough. With the preamp on Auto, boosts are offset so nothing clips."), 4),
+            Cell(Header("Q",
+                "Width of the filter. Low Q (0.5–1) is broad and gentle, high Q (4+) is narrow and surgical. "
+                + "For shelves it sets how steep the transition is."), 5));
 
         var bandRows = value.Bands.Select((b, i) =>
                 Grid(bandColumns, [GridSize.Auto],
@@ -104,17 +144,59 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
                                 idx => { if (idx >= 0) EditBand(i, f => f with { Type = Types[idx] }); })
                             .AutomationName($"Band {i + 1} type")
                             .HAlign(HorizontalAlignment.Stretch), 1),
+                        // A locked band's frequency is read-only here and on the graph.
                         Cell(Num("", b.FrequencyHz, EqLimits.MinHz, EqLimits.MaxHz, 10,
-                            x => EditBand(i, f => f with { FrequencyHz = x }), null, $"Band {i + 1} frequency"), 2),
+                            x => EditBand(i, f => f with { FrequencyHz = x }), null, $"Band {i + 1} frequency")
+                            .IsEnabled(!b.FrequencyLocked), 2),
+                        // Padlock glyph from the icon font (the SymbolIcon names have no lock).
+                        Cell(ToggleButton(
+                                TextBlock(b.FrequencyLocked ? "\uE72E" : "\uE785")
+                                    .FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets")
+                                    .FontSize(16)
+                                    .HAlign(HorizontalAlignment.Center),
+                                b.FrequencyLocked,
+                                on => EditBand(i, f => f with { FrequencyLocked = on }))
+                            .Width(40)
+                            .Padding(0, 5, 0, 6)
+                            .ToolTip(b.FrequencyLocked
+                                ? "Frequency locked: the graph handle moves up and down only"
+                                : "Lock frequency (graph handle moves up and down only)")
+                            .AutomationName($"Lock band {i + 1} frequency"), LockColumn),
                         Cell(Num("", b.GainDb, -EqLimits.BandDb, EqLimits.BandDb, 0.5,
-                            x => EditBand(i, f => f with { GainDb = x }), null, $"Band {i + 1} gain"), 3),
+                            x => EditBand(i, f => f with { GainDb = x }), null, $"Band {i + 1} gain"), 4),
                         Cell(Num("", b.Q, EqLimits.MinQ, EqLimits.MaxQ, 0.1,
-                            x => EditBand(i, f => f with { Q = x }), null, $"Band {i + 1} Q"), 4),
+                            x => EditBand(i, f => f with { Q = x }), null, $"Band {i + 1} Q"), 5),
                         Cell(IconButton(Symbol.Delete, $"Remove band {i + 1}",
-                            () => Edit(p => i < p.Bands.Count ? p with { Bands = p.Bands.RemoveAt(i) } : p)), 5))
+                            () => Edit(p => i < p.Bands.Count ? p with { Bands = p.Bands.RemoveAt(i) } : p)), 6))
                     .HAlign(HorizontalAlignment.Left)
                     .WithKey($"band-{i}"))
             .ToArray<Element>();
+
+        // Copy AutoEQ frequencies: replaces the bands, so ask first when that would drop any gain.
+        var autoEq = Props.AutoEqFilters;
+        void ApplyAutoEqFrequencies()
+        {
+            if (autoEq is { Count: > 0 }) Edit(p => p with { Bands = Preference.BandsAt(autoEq) });
+        }
+        void CopyAutoEqFrequencies()
+        {
+            if (latest.Current.Bands.Any(b => b.GainDb != 0)) setConfirmCopy(true);
+            else ApplyAutoEqFrequencies();
+        }
+        var copyDialog = ContentDialog("Replace the bands?",
+                Body($"The {value.Bands.Count} current bands (and their gains) are replaced by "
+                     + $"{autoEq?.Count ?? 0} flat bands at the AutoEQ frequencies."),
+                "Replace") with
+            {
+                IsOpen = confirmCopy,
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+                OnClosed = result =>
+                {
+                    setConfirmCopy(false);
+                    if (result == ContentDialogResult.Primary) ApplyAutoEqFrequencies();
+                },
+            };
 
         return VStack(12,
             // Header with its enable switch on the same line (no On/Off text).
@@ -140,10 +222,15 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
                     : VStack(8,
                             bandHeader.HAlign(HorizontalAlignment.Left),
                             VStack(6, bandRows),
-                            HStack(8,
+                            (FlexRow(
                                 Button("Add band", () => Edit(p => p with { Bands = p.Bands.Add(DefaultBand) })),
                                 Button("Reset to default bands",
-                                    () => Edit(p => p with { Bands = Preference.DefaultBands }))))
+                                    () => Edit(p => p with { Bands = Preference.DefaultBands })),
+                                autoEq is { Count: > 0 }
+                                    ? Button("Copy AutoEQ frequencies", CopyAutoEqFrequencies)
+                                        .ToolTip($"Replace the bands with {autoEq.Count} flat, frequency-locked bands at the AutoEQ filters")
+                                    : null) with { Wrap = FlexWrap.Wrap, ColumnGap = 8, RowGap = 8 }),
+                            copyDialog)
                         .WithKey("parametric")));
     }
 }

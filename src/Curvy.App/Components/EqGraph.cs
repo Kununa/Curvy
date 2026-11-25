@@ -22,7 +22,8 @@ public record EqGraphProps(
 /// <summary>
 /// Frequency-response graph: a ScottPlot <see cref="WinUIPlot"/> hosted in Reactor via
 /// <c>XamlHost</c>. X is log10(frequency) with manual decade ticks; each editable band
-/// gets a draggable handle (horizontal = frequency, vertical = gain).
+/// gets a draggable handle (horizontal = frequency, vertical = gain; gain only when the band's
+/// frequency is locked).
 /// </summary>
 public sealed class EqGraph : Component<EqGraphProps>
 {
@@ -143,7 +144,9 @@ public sealed class EqGraph : Component<EqGraphProps>
         for (var i = 0; i < props.EditableBands.Count; i++)
         {
             var b = props.EditableBands[i];
-            var marker = plot.Add.Marker(Math.Log10(b.FrequencyHz), b.GainDb, MarkerShape.FilledCircle, 12,
+            // Square handle = frequency locked (drags up and down only).
+            var marker = plot.Add.Marker(Math.Log10(b.FrequencyHz), b.GainDb,
+                b.FrequencyLocked ? MarkerShape.FilledSquare : MarkerShape.FilledCircle, 12,
                 ColorFor(GraphSeriesStyle.ProfilePreference, palette));
             marker.MarkerLineColor = PlotColor.FromHex(palette.HandleOutline);
             marker.MarkerLineWidth = 1.5f;
@@ -190,7 +193,8 @@ public sealed class EqGraph : Component<EqGraphProps>
         var old = bands[i];
         var updated = old with
         {
-            FrequencyHz = Math.Round(hz, hz < 1000 ? 1 : 0),
+            // A band with its frequency locked moves up and down only.
+            FrequencyHz = old.FrequencyLocked ? old.FrequencyHz : Math.Round(hz, hz < 1000 ? 1 : 0),
             GainDb = Math.Round(gain, 1),
             Q = Math.Clamp(old.Q, 0.1, 20),
         };
