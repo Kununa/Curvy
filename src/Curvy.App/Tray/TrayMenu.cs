@@ -24,14 +24,21 @@ public record TrayMenuProps(
 /// </summary>
 public sealed class TrayMenu : Component<TrayMenuProps>
 {
-    static readonly WindowIcon Icon =
-        WindowIcon.FromPath(Path.Combine(AppContext.BaseDirectory, "Assets", "curvy.ico"));
+    // Monochrome tray glyphs (see tools/icons): line colour follows the taskbar, dimmed while the EQ is off.
+    static WindowIcon Load(string name) => WindowIcon.FromPath(Path.Combine(AppContext.BaseDirectory, "Assets", name));
+    static readonly WindowIcon DarkOn = Load("tray-dark.ico"), DarkOff = Load("tray-dark-off.ico");
+    static readonly WindowIcon LightOn = Load("tray-light.ico"), LightOff = Load("tray-light-off.ico");
+
+    static WindowIcon TrayIconFor(bool eqOn) => TaskbarTheme.IsLight()
+        ? (eqOn ? LightOn : LightOff)
+        : (eqOn ? DarkOn : DarkOff);
 
     public override Element Render()
     {
         var activeName = Props.ActiveId is { } id ? Props.Profiles.FirstOrDefault(p => p.Id == id).Name : null;
         var tooltip = TrayText.Tooltip(activeName, Props.MasterEnabled, Props.Disconnected);
-        var tray = UseTrayIcon(new TrayIconSpec(Icon, tooltip, WindowKey.Of("curvy-tray")));
+        var icon = TrayIconFor(Props.MasterEnabled && !Props.Disconnected);
+        var tray = UseTrayIcon(new TrayIconSpec(icon, tooltip, WindowKey.Of("curvy-tray")));
         var latest = UseRef(Props);
         latest.Current = Props;
 
