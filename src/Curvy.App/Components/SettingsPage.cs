@@ -8,6 +8,7 @@ using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using static Microsoft.UI.Reactor.Factories;
+using static Curvy.App.Components.ProfileButtons;
 
 namespace Curvy.App.Components;
 
@@ -19,11 +20,11 @@ public record SettingsPageProps(EngineState State);
 /// </summary>
 public sealed class SettingsPage : Component<SettingsPageProps>
 {
-    const string AutoEqUrl = "https://github.com/jaakkopasanen/AutoEq";
+    private const string AutoEqUrl = "https://github.com/jaakkopasanen/AutoEq";
 
-    sealed record ConfigRead(IReadOnlyList<ConfigLine> Lines, string? Error);
+    private sealed record ConfigRead(IReadOnlyList<ConfigLine> Lines, string? Error);
 
-    static readonly string Version =
+    private static readonly string Version =
         (typeof(SettingsPage).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
          ?? typeof(SettingsPage).Assembly.GetName().Version?.ToString()
          ?? "unknown").Split('+')[0];
@@ -63,9 +64,10 @@ public sealed class SettingsPage : Component<SettingsPageProps>
             var (text, isOn, canToggle, note) = line.Kind switch
             {
                 ConfigLineKind.CurvyInclude => (line.Text.Trim(), true, false, "Curvy's own include — always on"),
-                ConfigLineKind.CurvyDisabled => (line.Text[ConfigTxt.DisabledPrefix.Length..].Trim(), false, true, "Turned off by Curvy"),
+                ConfigLineKind.CurvyDisabled => (line.Text[ConfigTxt.DisabledPrefix.Length..].Trim(), false, true,
+                    "Turned off by Curvy"),
                 ConfigLineKind.Comment => (line.Text.Trim(), false, false, "Comment"),
-                _ => (line.Text.Trim(), true, true, (string?)null),
+                _ => (line.Text.Trim(), true, true, (string?)null)
             };
             return HStack(12,
                     ToggleSwitch(isOn, on => Toggle(line, on), "On", "Off")
@@ -91,7 +93,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
             {
                 true => "config.txt was restored. Curvy is disconnected until you click Reconnect.",
                 false => "There is no backup yet: Curvy hasn't changed config.txt.",
-                null => null,
+                null => null
             });
         }
 
@@ -110,18 +112,31 @@ public sealed class SettingsPage : Component<SettingsPageProps>
                 {
                     setConfirmRestore(false);
                     if (result == ContentDialogResult.Primary) Restore();
-                },
+                }
             };
 
         var apoSection = Section("Equalizer APO",
             VStack(2, Caption("Configuration file"),
-                TextBlock(host.Engine.ConfigTxtPath).IsTextSelectionEnabled().TextWrapping(TextWrapping.Wrap)),
-            InfoBar(null, "Curvy's clipping protection (preamp) only covers its own EQ. Other enabled lines are outside it.")
-                with { IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational },
+                // Path (wraps in the star column), then icon buttons on its right.
+                Grid([GridSize.Star(), GridSize.Auto, GridSize.Auto], [GridSize.Auto],
+                    TextBlock(host.Engine.ConfigTxtPath).IsTextSelectionEnabled().TextWrapping(TextWrapping.Wrap)
+                        .VAlign(VerticalAlignment.Center).Grid(row: 0, column: 0),
+                    IconButton(Symbol.Edit, "Open in text editor", () => OpenInEditor(host))
+                        .Margin(12, 0, 0, 0).Grid(row: 0, column: 1),
+                    IconButton(Symbol.Folder, "Open folder", () => OpenFolder(host))
+                        .Margin(8, 0, 0, 0).Grid(row: 0, column: 2))),
+            InfoBar(null,
+                    "Curvy's clipping protection (preamp) only covers its own EQ. Other enabled lines are outside it.")
+                with
+                {
+                    IsOpen = true, IsClosable = false, Severity = InfoBarSeverity.Informational
+                },
             linesArea,
             HStack(12,
                 Button("Restore original config.txt", () => setConfirmRestore(true)).IsEnabled(!paused),
-                restoreNote is null ? null : Caption(restoreNote).VAlign(VerticalAlignment.Center).TextWrapping(TextWrapping.Wrap)),
+                restoreNote is null
+                    ? null
+                    : Caption(restoreNote).VAlign(VerticalAlignment.Center).TextWrapping(TextWrapping.Wrap)),
             restoreDialog);
 
         // ── Extra headroom ───────────────────────────────────────────────
@@ -130,11 +145,12 @@ public sealed class SettingsPage : Component<SettingsPageProps>
             : state.Settings.ExtraHeadroomDb;
         var headroomSection = Section("Extra headroom",
             Caption("Lowers the overall level by this much on top of Curvy's automatic clipping protection."),
-            Component<NumField, NumFieldProps>(new NumFieldProps("Extra headroom (dB)", headroom, 0, 12, 0.5, v =>
+            HStack(Component<NumField, NumFieldProps>(new NumFieldProps("", headroom, 0, 12, 0.5, v =>
             {
                 setHeadroomDraft(v);
                 host.Debounced(EngineHost.SettingsKey, () => host.Engine.SetExtraHeadroom(v));
-            }, 200)));
+            }, 100, "Extra headroom (dB)")), Body("(dB)").VAlign(VerticalAlignment.Center))
+        );
 
         // ── Start with Windows ───────────────────────────────────────────
         var startupSection = Section("Start with Windows",
@@ -165,10 +181,39 @@ public sealed class SettingsPage : Component<SettingsPageProps>
                 .Padding(24, 16, 24, 24));
     }
 
-    static Element Section(string title, params Element?[] children) =>
-        Card(VStack(12, new Element?[] { BodyStrong(title) }.Concat(children).ToArray()));
+    private static Element Section(string title, params Element?[] children)
+    {
+        return Card(VStack(12, new Element?[] { BodyStrong(title) }.Concat(children).ToArray()));
+    }
 
-    static ConfigRead ReadConfig(EngineHost host)
+    /// <summary>Opens config.txt with whatever app Windows uses for .txt files.</summary>
+    private static void OpenInEditor(EngineHost host)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(host.Engine.ConfigTxtPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            host.ReportError($"Couldn't open config.txt: {ex.Message}");
+        }
+    }
+
+    /// <summary>Opens the config folder in Explorer with config.txt selected.</summary>
+    private static void OpenFolder(EngineHost host)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{host.Engine.ConfigTxtPath}\"")
+                { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            host.ReportError($"Couldn't open the config folder: {ex.Message}");
+        }
+    }
+
+    private static ConfigRead ReadConfig(EngineHost host)
     {
         try
         {
@@ -184,7 +229,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
 /// <summary>Settings → AutoEQ: when the index was downloaded, and a Refresh button.</summary>
 public sealed class AutoEqIndexSettings : Component
 {
-    sealed record Note(InfoBarSeverity Severity, string Message);
+    private sealed record Note(InfoBarSeverity Severity, string Message);
 
     public override Element Render()
     {
@@ -196,6 +241,7 @@ public sealed class AutoEqIndexSettings : Component
             initial.Current = host.AutoEq.IndexFetchedAt; // reads a small file: once per mount
             read.Current = true;
         }
+
         var (fetchedAt, setFetchedAt) = UseState(initial.Current);
         var (busy, setBusy) = UseState(false);
         var (note, setNote) = UseState<Note?>(null);
@@ -214,11 +260,12 @@ public sealed class AutoEqIndexSettings : Component
             setNote(null);
             try
             {
-                await host.AutoEqIndex.LoadAsync(forceRefresh: true).WaitAsync(ct);
+                await host.AutoEqIndex.LoadAsync(true).WaitAsync(ct);
                 host.Post(() =>
                 {
                     host.AutoEqCorrections.Clear();
                     if (ct.IsCancellationRequested) return;
+
                     var after = host.AutoEq.IndexFetchedAt;
                     setFetchedAt(after);
                     setBusy(false);
@@ -236,6 +283,7 @@ public sealed class AutoEqIndexSettings : Component
                 host.Post(() =>
                 {
                     if (ct.IsCancellationRequested) return;
+
                     setBusy(false);
                     setNote(new Note(InfoBarSeverity.Warning, $"Couldn't refresh: {ex.Message}"));
                 });
@@ -244,7 +292,10 @@ public sealed class AutoEqIndexSettings : Component
             {
                 Debug.WriteLine($"Curvy: AutoEQ index refresh failed: {ex}");
                 host.ReportError($"Couldn't refresh the AutoEQ index: {ex.Message}");
-                host.Post(() => { if (!ct.IsCancellationRequested) setBusy(false); });
+                host.Post(() =>
+                {
+                    if (!ct.IsCancellationRequested) setBusy(false);
+                });
             }
         }
 
@@ -259,7 +310,7 @@ public sealed class AutoEqIndexSettings : Component
             note is { } n
                 ? InfoBar(null, n.Message) with
                 {
-                    IsOpen = true, IsClosable = true, Severity = n.Severity, OnClosed = () => setNote(null),
+                    IsOpen = true, IsClosable = true, Severity = n.Severity, OnClosed = () => setNote(null)
                 }
                 : null);
     }
