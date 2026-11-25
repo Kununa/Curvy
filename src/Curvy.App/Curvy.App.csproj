@@ -35,9 +35,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="ScottPlot.WinUI" Version="5.1.59" />
-    <!-- ScottPlot.WinUI depends on the WindowsAppSDK 1.5 metapackage, which collides with the
-         WinAppSDK 2.x split packages Reactor brings. Pin it but exclude all of its assets. -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" ExcludeAssets="all" />
+    <!-- ScottPlot.WinUI depends on the WindowsAppSDK metapackage (>= 1.5). Referencing the current
+         2.x metapackage directly aligns it with the split packages Reactor brings. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
   </ItemGroup>
 
   <!--
