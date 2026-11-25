@@ -50,6 +50,12 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
 
     sealed record PreviewState(AutoEqIndexEntry Entry, AutoEqCorrection? Correction);
 
+    /// <summary>List rows fill the width (ListViewItem defaults to left-aligned content).</summary>
+    static readonly Lazy<Style> StretchItems = new(() => new Style(typeof(Microsoft.UI.Xaml.Controls.ListViewItem))
+    {
+        Setters = { new Setter(Microsoft.UI.Xaml.Controls.Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch) },
+    });
+
     public override Element Render()
     {
         var host = EngineHost.Instance;
@@ -261,12 +267,15 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                         ComboBox(
                                 h.Results.Select(r => $"{r.Source} · {r.Rig}").ToArray(),
                                 h.Results.ToList().IndexOf(entry),
-                                i => updateSourceChoice(d => d.SetItem(h.Name, i)))
+                                i =>
+                                {
+                                    updateSourceChoice(d => d.SetItem(h.Name, i));
+                                    // Keep the graph in sync when the previewed headphone switches source.
+                                    if (isPreviewed && i >= 0 && i < h.Results.Count)
+                                        _ = PreviewAsync(h.Results[i], Token());
+                                })
                             .AutomationName($"Measurement source for {h.Name}")
                             .Width(260)
-                            .Flex(shrink: 0),
-                        Button(isPreviewed ? "Previewing" : "Preview", () => _ = PreviewAsync(entry, Token()))
-                            .AutomationName($"Preview {h.Name}")
                             .Flex(shrink: 0),
                         Button(isBusy ? "Fetching…" : primaryText,
                                 () => _ = ApplyEntryAsync(entry, replaceTarget?.Id, Token()))
@@ -289,7 +298,14 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
         else if (results.Count == 0)
             resultsArea = Caption($"No headphones match \"{searchQuery.Trim()}\".");
         else
-            resultsArea = ScrollView(VStack(8, results.Select(Row).ToArray()).Padding(0, 0, 16, 8));
+        {
+            // Selecting a row previews it; the graph below follows the selection.
+            var selected = preview is null ? -1 : results.ToList().FindIndex(h => h.Results.Contains(preview.Entry));
+            resultsArea = ListView(selected < 0 ? null : selected,
+                i => { if (i >= 0 && i < results.Count) _ = PreviewAsync(Chosen(results[i]), Token()); },
+                results.Select(Row).ToArray())
+                .ItemContainerStyle(StretchItems.Value);
+        }
 
         // ── Preview graph ────────────────────────────────────────────────
         Element graphArea;
@@ -312,7 +328,7 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
         else if (preview is not null)
             graphArea = HStack(8, ProgressRing().Width(20).Height(20), Caption($"Fetching {preview.Entry.Name}…"));
         else
-            graphArea = Caption("Pick \"Preview\" on a result to see its correction curve.");
+            graphArea = Caption("Select a result to see its correction curve.");
 
         // ── Status bars ──────────────────────────────────────────────────
         Element? indexBar = index.Error is { } indexError

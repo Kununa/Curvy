@@ -2,6 +2,7 @@ using Curvy.App.Services;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
 using Microsoft.UI.Reactor.Layout;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using static Microsoft.UI.Reactor.Factories;
 
@@ -17,22 +18,25 @@ public abstract record Route
     /// <paramref name="ReplaceForProfileId"/> it swaps that profile's correction instead of creating one.
     /// </summary>
     public sealed record AutoEq(string? Query = null, Guid? ReplaceForProfileId = null) : Route;
+    /// <summary>What Curvy currently writes to Equalizer APO (curvy.txt).</summary>
+    public sealed record Output : Route;
     public sealed record Settings : Route;
 }
 
 /// <summary>
-/// Main window content: NavigationView (Profiles, Universal preference, AutoEQ, Settings) with
+/// Main window content: NavigationView (Profiles, Universal preference, AutoEQ, Output, Settings) with
 /// status InfoBars above the page. When Equalizer APO is unavailable a blocking InfoBar is shown
 /// and no page touches the engine.
 /// </summary>
 public sealed class Shell : EngineComponent
 {
-    const string ProfilesTag = "profiles", UniversalTag = "universal", AutoEqTag = "autoeq";
+    const string ProfilesTag = "profiles", UniversalTag = "universal", AutoEqTag = "autoeq", OutputTag = "output";
 
     static string RouteToTag(Route r) => r switch
     {
         Route.Universal => UniversalTag,
         Route.AutoEq => AutoEqTag,
+        Route.Output => OutputTag,
         Route.Settings => NavigationViewElement.SettingsTag,
         _ => ProfilesTag,
     };
@@ -41,6 +45,7 @@ public sealed class Shell : EngineComponent
     {
         UniversalTag => new Route.Universal(),
         AutoEqTag => new Route.AutoEq(),
+        OutputTag => new Route.Output(),
         NavigationViewElement.SettingsTag or null => new Route.Settings(),
         _ => new Route.Profiles(),
     };
@@ -50,12 +55,6 @@ public sealed class Shell : EngineComponent
         var state = UseEngine();
         var nav = UseNavigation<Route>(new Route.Profiles());
         var host = EngineHost.Instance;
-
-        void OpenAutoEq(string? query, Guid? replaceForProfileId)
-        {
-            host.Flush(); // persist pending edits before leaving the page
-            nav.Navigate(new Route.AutoEq(query, replaceForProfileId));
-        }
 
         void OpenProfile(Guid id)
         {
@@ -78,11 +77,12 @@ public sealed class Shell : EngineComponent
                 Route.AutoEq a => Component<AutoEqPage, AutoEqPageProps>(
                         new AutoEqPageProps(a.Query, a.ReplaceForProfileId, state, OpenProfile))
                     .WithKey($"autoeq:{a.Query}:{a.ReplaceForProfileId}"),
+                Route.Output => Component<OutputPage, OutputPageProps>(new OutputPageProps(state)),
                 Route.Settings => Component<SettingsPage, SettingsPageProps>(new SettingsPageProps(state)),
                 Route.Profiles p => Component<ProfilesPage, ProfilesPageProps>(
-                        new ProfilesPageProps(state, OpenAutoEq, p.Select))
+                        new ProfilesPageProps(state, p.Select))
                     .WithKey($"profiles:{p.Select}"),
-                _ => Component<ProfilesPage, ProfilesPageProps>(new ProfilesPageProps(state, OpenAutoEq, null)),
+                _ => Component<ProfilesPage, ProfilesPageProps>(new ProfilesPageProps(state, null)),
             };
         }
 
@@ -139,6 +139,23 @@ public sealed class Shell : EngineComponent
             bars.Add(InfoBar("Something went wrong", uiError)
                 with { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Error, OnClosed = host.DismissUiError });
 
+        // Global EQ on/off (same as the tray's "EQ on/off"): a footer row in the navigation pane,
+        // laid out like a nav item (icon column, label, switch at the right edge).
+        var canToggle = state.Ready && !state.Settings.IntegrationPaused;
+        var masterSwitch = (FlexRow(
+                TextBlock("").FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets").FontSize(16)
+                    .Width(16).VAlign(VerticalAlignment.Center).Flex(shrink: 0),
+                TextBlock("Equalizer").VAlign(VerticalAlignment.Center)
+                    .TextTrimming(TextTrimming.CharacterEllipsis).Flex(grow: 1, basis: 0),
+                ToggleSwitch(state.Ready && state.Settings.MasterEnabled,
+                        on => { if (canToggle) host.Now(e => e.SetMasterEnabled(on)); }, "", "")
+                    .MinWidth(0)
+                    .IsEnabled(canToggle)
+                    .AutomationName("Equalizer on or off")
+                    .VAlign(VerticalAlignment.Center)
+                    .Flex(shrink: 0)) with { ColumnGap = 16 })
+            .Margin(16, 4, 8, 4);
+
         var content = FlexColumn(
             VStack(8, bars.ToArray()).Margin(16, bars.Count > 0 ? 8 : 0, 16, 0).Flex(shrink: 0),
             NavigationHost(nav, Page).Flex(grow: 1, basis: 0));
@@ -148,6 +165,7 @@ public sealed class Shell : EngineComponent
                 NavItem("Profiles", icon: "Audio", tag: ProfilesTag),
                 NavItem("Universal preference", icon: "Globe", tag: UniversalTag),
                 NavItem("AutoEQ", icon: "Find", tag: AutoEqTag),
+                NavItem("Output", icon: "Document", tag: OutputTag),
             ],
             content) with
         {
@@ -159,6 +177,7 @@ public sealed class Shell : EngineComponent
                 host.Flush(); // persist pending edits before leaving the page
                 nav.Navigate(target);
             },
+            PaneFooter = masterSwitch,
             IsSettingsVisible = true,
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
         };

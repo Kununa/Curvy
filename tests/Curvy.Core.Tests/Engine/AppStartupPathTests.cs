@@ -55,13 +55,14 @@ public sealed class AppStartupPathTests : IDisposable
         await Assert.That(File.Exists(apo.ConfigTxtPath + ".curvy-backup")).IsTrue();
         await Assert.That(File.ReadAllText(apo.ConfigTxtPath + ".curvy-backup")).IsEqualTo("Include: peace.txt\r\n");
 
-        // "New blank profile", add two bands, bass +4, then Activate.
+        // "New blank profile", switch its preference on (off by default), add two bands, bass +4, then Activate.
         var p = Profile.New("New profile");
         engine.SaveProfile(p);
         p = p with
         {
             Preference = p.Preference with
             {
+                Enabled = true,
                 Tone = p.Preference.Tone with { BassDb = 4 },
                 Bands = ImmutableList.Create(
                     new Filter(FilterType.Peaking, 1000, 0, 1),

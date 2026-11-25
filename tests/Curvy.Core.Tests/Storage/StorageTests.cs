@@ -45,6 +45,7 @@ public sealed class StorageTests : IDisposable
     {
         await Assert.That(a.Tone).IsEqualTo(e.Tone);
         await Assert.That(a.Enabled).IsEqualTo(e.Enabled);
+        await Assert.That(a.Mode).IsEqualTo(e.Mode);
         await Assert.That(e.Bands.SequenceEqual(a.Bands)).IsTrue();
     }
 
@@ -140,7 +141,7 @@ public sealed class StorageTests : IDisposable
     {
         var store = new SettingsStore(_dir);
         var s = new CurvySettings(1, Guid.NewGuid(), false,
-            new Preference(new ToneControls(BassDb: 3), ImmutableList.Create(new Filter(FilterType.Peaking, 1000, 2, 1)), true),
+            new Preference(new ToneControls(BassDb: 3), ImmutableList.Create(new Filter(FilterType.Peaking, 1000, 2, 1)), true, PreferenceMode.Parametric),
             1.5, true, ["Include foo.txt", "Preamp: 3 dB"], FirstRunShown: true, IntegrationPaused: true);
         store.Save(s);
         var l = store.Load();
@@ -170,6 +171,8 @@ public sealed class StorageTests : IDisposable
         await Assert.That(l.StartWithWindows).IsTrue();
         await Assert.That(l.FirstRunShown).IsFalse();
         await Assert.That(l.IntegrationPaused).IsFalse();
+        await Assert.That(l.PreampMode).IsEqualTo(PreampMode.Auto);
+        await Assert.That(l.ManualPreampDb).IsEqualTo(-6);
         await Assert.That(l.Universal).IsSameReferenceAs(Preference.Empty);
         await Assert.That(l.DisabledForeignLines).IsNotNull();
         await Assert.That(l.DisabledForeignLines).IsEmpty();

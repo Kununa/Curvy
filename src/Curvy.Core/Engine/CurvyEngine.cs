@@ -76,6 +76,10 @@ public sealed class CurvyEngine
     public void SetExtraHeadroom(double db) =>
         Mutate(Settings with { ExtraHeadroomDb = Math.Clamp(db, 0, 12) });
 
+    /// <summary>Sets the preamp mode; the manual value is clamped to −30…+12 dB.</summary>
+    public void SetPreamp(PreampMode mode, double manualDb) =>
+        Mutate(Settings with { PreampMode = mode, ManualPreampDb = Math.Clamp(manualDb, -30, 12) });
+
     public void SaveProfile(Profile p)
     {
         var stamped = p with { Modified = DateTimeOffset.UtcNow };

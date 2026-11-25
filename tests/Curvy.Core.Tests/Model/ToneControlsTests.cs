@@ -35,13 +35,45 @@ public class ToneControlsTests
     }
 
     [Test]
-    public async Task Preference_ToneThenBands()
+    public async Task Preference_ModesAreExclusive()
     {
         var band = new Filter(FilterType.Peaking, 1000, 2, 1);
-        var p = new Preference(new ToneControls(BassDb: 3), [band], true);
-        var all = p.AllFilters().ToList();
-        await Assert.That(all.Count).IsEqualTo(2);
-        await Assert.That(all[0].Type).IsEqualTo(FilterType.LowShelf);
-        await Assert.That(all[1]).IsEqualTo(band);
+        var simple = new Preference(new ToneControls(BassDb: 3), [band], true, PreferenceMode.Simple);
+        var simpleFilters = simple.AllFilters().ToList();
+        await Assert.That(simpleFilters.Count).IsEqualTo(1);
+        await Assert.That(simpleFilters[0].Type).IsEqualTo(FilterType.LowShelf);
+        await Assert.That(simple.ActiveBands).IsEmpty();
+
+        var parametric = simple with { Mode = PreferenceMode.Parametric };
+        await Assert.That(parametric.AllFilters().ToList()).IsEquivalentTo([band]);
+        await Assert.That(parametric.ActiveBands).IsEquivalentTo([band]);
+    }
+
+    [Test]
+    public async Task Preference_WithoutMode_InfersFromBands()
+    {
+        var band = new Filter(FilterType.Peaking, 1000, 2, 1);
+        await Assert.That(new Preference(new ToneControls(BassDb: 3), [band]).EffectiveMode).IsEqualTo(PreferenceMode.Parametric);
+        await Assert.That(new Preference(new ToneControls(BassDb: 3), [band with { GainDb = 0 }]).EffectiveMode).IsEqualTo(PreferenceMode.Simple);
+        await Assert.That(new Preference(new ToneControls(), []).EffectiveMode).IsEqualTo(PreferenceMode.Simple);
+    }
+
+    [Test]
+    public async Task Preference_Empty_HasFlatDefaultBands_AndNoFilters()
+    {
+        var e = Preference.Empty;
+        await Assert.That(e.Bands.Count).IsEqualTo(Preference.DefaultBands.Count);
+        await Assert.That(e.Bands.All(b => b.GainDb == 0)).IsTrue();
+        await Assert.That(e.EffectiveMode).IsEqualTo(PreferenceMode.Simple);
+        await Assert.That(e.AllFilters()).IsEmpty();
+        await Assert.That((e with { Mode = PreferenceMode.Parametric }).AllFilters()).IsEmpty();
+    }
+
+    [Test]
+    public async Task NewProfile_PreferenceIsOffByDefault()
+    {
+        var p = Profile.New("X");
+        await Assert.That(p.Preference.Enabled).IsFalse();
+        await Assert.That(p.Preference.Bands.Count).IsEqualTo(Preference.DefaultBands.Count);
     }
 }

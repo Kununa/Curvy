@@ -7,10 +7,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Globalization.NumberFormatting;
 using static Microsoft.UI.Reactor.Factories;
+using static Curvy.App.Components.ProfileButtons;
 
 namespace Curvy.App.Components;
 
-public record PreferenceEditorProps(Preference Value, Action<Preference> OnChange);
+/// <param name="Title">Section header; the enable switch sits right next to it.</param>
+public record PreferenceEditorProps(Preference Value, Action<Preference> OnChange, string Title = "Preference");
 
 /// <summary>Limits applied wherever the UI edits a filter or tone control.</summary>
 public static class EqLimits
@@ -29,16 +31,19 @@ public static class EqLimits
 }
 
 /// <summary>
-/// Editor for a <see cref="Preference"/>: enabled toggle, bass/treble/tilt sliders with an
-/// expander for their frequency/Q, and a parametric band list. Controlled: every edit emits a
+/// Editor for a <see cref="Preference"/>: enabled toggle, then Simple / Parametric tabs (exclusive:
+/// the selected one is applied) with bass/treble/tilt sliders or a parametric band list. Controlled: every edit emits a
 /// whole new <see cref="Preference"/> through <c>OnChange</c>.
 /// </summary>
 public sealed class PreferenceEditor : Component<PreferenceEditorProps>
 {
-    static readonly string[] TypeNames = ["Peaking", "Low shelf", "High shelf"];
+    static readonly string[] TypeNames = ["Peak", "Low shelf", "High shelf"];
     static readonly FilterType[] Types = [FilterType.Peaking, FilterType.LowShelf, FilterType.HighShelf];
 
     public static readonly Filter DefaultBand = new(FilterType.Peaking, 1000, 0, 1);
+
+    static readonly PreferenceMode[] Modes = [PreferenceMode.Simple, PreferenceMode.Parametric];
+    static readonly SelectorBarItemData[] ModeTabs = [SelectorBarItem("Simple"), SelectorBarItem("Parametric")];
 
     public override Element Render()
     {
@@ -74,72 +79,80 @@ public sealed class PreferenceEditor : Component<PreferenceEditorProps>
                     .VAlign(VerticalAlignment.Center).Grid(row: 0, column: 2));
 
         static Element Num(string header, double v, double min, double max, double step, Action<double> set,
-            double? width = 120) =>
-            Component<NumField, NumFieldProps>(new NumFieldProps(header, v, min, max, step, set, width));
+            double? width = 120, string? automationLabel = null) =>
+            Component<NumField, NumFieldProps>(new NumFieldProps(header, v, min, max, step, set, width, automationLabel));
 
-        var toneDetails = Expander("Tone control details",
-            VStack(12,
-                HStack(12,
-                    Num("Bass Hz", tone.BassHz, EqLimits.MinHz, EqLimits.MaxHz, 5,
-                        x => EditTone(t => t with { BassHz = x })),
-                    Num("Bass Q", tone.BassQ, EqLimits.MinQ, EqLimits.MaxQ, 0.1,
-                        x => EditTone(t => t with { BassQ = x }))),
-                HStack(12,
-                    Num("Treble Hz", tone.TrebleHz, EqLimits.MinHz, EqLimits.MaxHz, 100,
-                        x => EditTone(t => t with { TrebleHz = x })),
-                    Num("Treble Q", tone.TrebleQ, EqLimits.MinQ, EqLimits.MaxQ, 0.1,
-                        x => EditTone(t => t with { TrebleQ = x }))),
-                Num("Tilt pivot Hz", tone.TiltPivotHz, EqLimits.MinHz, EqLimits.MaxHz, 50,
-                    x => EditTone(t => t with { TiltPivotHz = x }))))
-            .HAlign(HorizontalAlignment.Stretch);
+        // Compact table: one row per band under a single header line.
+        // [on] [type ▾] [Hz] [Gain dB] [Q] [🗑]
+        GridSize[] bandColumns =
+        [
+            GridSize.Px(32), GridSize.Px(124), GridSize.Px(120), GridSize.Px(104), GridSize.Px(96), GridSize.Auto, // Auto: the icon button sizes itself
+        ];
+        Element Cell(Element e, int column) =>
+            e.Margin(column == 0 ? 0 : 4, 0, 4, 0).VAlign(VerticalAlignment.Center).Grid(row: 0, column: column);
 
-        // Two lines per band so the row fits the editor column (~450 DIP at the default window
-        // size): [type ▾ | On | Remove] above [Hz | Gain | Q], the number boxes sharing the width.
+        var bandHeader = Grid(bandColumns, [GridSize.Auto],
+            Cell(Caption("Type"), 1), Cell(Caption("Hz"), 2), Cell(Caption("Gain dB"), 3), Cell(Caption("Q"), 4));
+
         var bandRows = value.Bands.Select((b, i) =>
-                VStack(4,
-                    Grid([GridSize.Star(), GridSize.Auto, GridSize.Auto], [GridSize.Auto],
-                        ComboBox(TypeNames, Array.IndexOf(Types, b.Type),
+                Grid(bandColumns, [GridSize.Auto],
+                        Cell(CheckBox(b.Enabled, on => EditBand(i, f => f with { Enabled = on }))
+                            .MinWidth(0)
+                            .ToolTip(b.Enabled ? "Band on" : "Band off")
+                            .AutomationName($"Band {i + 1} enabled"), 0),
+                        Cell(ComboBox(TypeNames, Array.IndexOf(Types, b.Type),
                                 idx => { if (idx >= 0) EditBand(i, f => f with { Type = Types[idx] }); })
                             .AutomationName($"Band {i + 1} type")
-                            .HAlign(HorizontalAlignment.Stretch)
-                            .Grid(row: 0, column: 0),
-                        CheckBox(b.Enabled, on => EditBand(i, f => f with { Enabled = on }), "On")
-                            .AutomationName($"Band {i + 1} enabled")
-                            .Margin(12, 0, 0, 0)
-                            .Grid(row: 0, column: 1),
-                        Button("Remove",
-                                () => Edit(p => i < p.Bands.Count ? p with { Bands = p.Bands.RemoveAt(i) } : p))
-                            .AutomationName($"Remove band {i + 1}")
-                            .Grid(row: 0, column: 2)),
-                    Grid([GridSize.Star(), GridSize.Star(), GridSize.Star()], [GridSize.Auto],
-                        Num("Hz", b.FrequencyHz, EqLimits.MinHz, EqLimits.MaxHz, 10,
-                                x => EditBand(i, f => f with { FrequencyHz = x }), width: null)
-                            .Margin(0, 0, 4, 0).Grid(row: 0, column: 0),
-                        Num("Gain dB", b.GainDb, -EqLimits.BandDb, EqLimits.BandDb, 0.5,
-                                x => EditBand(i, f => f with { GainDb = x }), width: null)
-                            .Margin(4, 0, 4, 0).Grid(row: 0, column: 1),
-                        Num("Q", b.Q, EqLimits.MinQ, EqLimits.MaxQ, 0.1,
-                                x => EditBand(i, f => f with { Q = x }), width: null)
-                            .Margin(4, 0, 0, 0).Grid(row: 0, column: 2)))
+                            .HAlign(HorizontalAlignment.Stretch), 1),
+                        Cell(Num("", b.FrequencyHz, EqLimits.MinHz, EqLimits.MaxHz, 10,
+                            x => EditBand(i, f => f with { FrequencyHz = x }), null, $"Band {i + 1} frequency"), 2),
+                        Cell(Num("", b.GainDb, -EqLimits.BandDb, EqLimits.BandDb, 0.5,
+                            x => EditBand(i, f => f with { GainDb = x }), null, $"Band {i + 1} gain"), 3),
+                        Cell(Num("", b.Q, EqLimits.MinQ, EqLimits.MaxQ, 0.1,
+                            x => EditBand(i, f => f with { Q = x }), null, $"Band {i + 1} Q"), 4),
+                        Cell(IconButton(Symbol.Delete, $"Remove band {i + 1}",
+                            () => Edit(p => i < p.Bands.Count ? p with { Bands = p.Bands.RemoveAt(i) } : p)), 5))
+                    .HAlign(HorizontalAlignment.Left)
                     .WithKey($"band-{i}"))
             .ToArray<Element>();
 
         return VStack(12,
-            ToggleSwitch(value.Enabled, on => Edit(p => p with { Enabled = on }), "Enabled", "Disabled",
-                "Preference"),
-            VStack(4,
-                ToneSlider("Bass", tone.BassDb, (t, v) => t with { BassDb = v }),
-                ToneSlider("Treble", tone.TrebleDb, (t, v) => t with { TrebleDb = v }),
-                ToneSlider("Tilt", tone.TiltDb, (t, v) => t with { TiltDb = v })),
-            toneDetails,
-            BodyStrong($"Bands ({value.Bands.Count})"),
-            VStack(16, bandRows),
-            Button("Add band", () => Edit(p => p with { Bands = p.Bands.Add(DefaultBand) })));
+            // Header with its enable switch on the same line (no On/Off text).
+            HStack(12,
+                BodyStrong(Props.Title).VAlign(VerticalAlignment.Center),
+                ToggleSwitch(value.Enabled, on => Edit(p => p with { Enabled = on }), "", "")
+                    .MinWidth(0)
+                    .AutomationName($"{Props.Title} enabled")
+                    .VAlign(VerticalAlignment.Center)),
+            // Disabled: only the header row; the settings come back unchanged when re-enabled.
+            !value.Enabled ? null : VStack(12,
+                // Exclusive modes: the selected tab is what gets applied; the other keeps its values.
+                SelectorBar(ModeTabs, Array.IndexOf(Modes, value.EffectiveMode),
+                        i => { if (i >= 0 && i < Modes.Length) Edit(p => p with { Mode = Modes[i] }); })
+                    .AutomationName($"{Props.Title} mode"),
+                value.EffectiveMode == PreferenceMode.Simple
+                    // Simple = just the three sliders (fixed frequencies/Q from ToneControls' defaults).
+                    ? VStack(4,
+                            ToneSlider("Bass", tone.BassDb, (t, v) => t with { BassDb = v }),
+                            ToneSlider("Treble", tone.TrebleDb, (t, v) => t with { TrebleDb = v }),
+                            ToneSlider("Tilt", tone.TiltDb, (t, v) => t with { TiltDb = v }))
+                        .WithKey("simple")
+                    : VStack(8,
+                            bandHeader.HAlign(HorizontalAlignment.Left),
+                            VStack(6, bandRows),
+                            HStack(8,
+                                Button("Add band", () => Edit(p => p with { Bands = p.Bands.Add(DefaultBand) })),
+                                Button("Reset to default bands",
+                                    () => Edit(p => p with { Bands = Preference.DefaultBands }))))
+                        .WithKey("parametric")));
     }
 }
 
+/// <param name="Header">Label above the box; empty for none (then pass <paramref name="AutomationLabel"/>).</param>
+/// <param name="AutomationLabel">Screen-reader name; defaults to <paramref name="Header"/>.</param>
 public record NumFieldProps(
-    string Header, double Value, double Min, double Max, double Step, Action<double> OnCommit, double? Width);
+    string Header, double Value, double Min, double Max, double Step, Action<double> OnCommit, double? Width,
+    string? AutomationLabel = null);
 
 /// <summary>
 /// A controlled <c>NumberBox</c> that never shows a value the model doesn't have.
@@ -194,11 +207,11 @@ public sealed class NumField : Component<NumFieldProps>
             if (clamped != p.Value) p.OnCommit(clamped);
         }
 
-        var box = (NumberBox(p.Value, OnValue, p.Header) with { SmallChange = p.Step, LargeChange = p.Step * 10 })
+        var box = (NumberBox(p.Value, OnValue, string.IsNullOrEmpty(p.Header) ? null : p.Header) with { SmallChange = p.Step, LargeChange = p.Step * 10 })
             .Range(p.Min, p.Max)
             .NumberFormatter(Formatter)
             .SpinButtons(NumberBoxSpinButtonPlacementMode.Compact)
-            .AutomationName(p.Header);
+            .AutomationName(p.AutomationLabel ?? p.Header);
         Element e = p.Width is { } w ? box.Width(w) : box.HAlign(HorizontalAlignment.Stretch);
         return e.WithKey($"n{nonce}");
     }

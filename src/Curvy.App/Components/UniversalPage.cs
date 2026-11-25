@@ -72,7 +72,7 @@ public sealed class UniversalPage : Component<UniversalPageProps>
                     Subtitle("Universal preference"),
                     Caption("Applied on top of every profile (unless a profile ignores it), and on its own when no profile is active."))
                     .Flex(shrink: 0),
-                Component<EqGraph, EqGraphProps>(new EqGraphProps(series, pref.Bands, OnBandChanged))
+                Component<EqGraph, EqGraphProps>(new EqGraphProps(series, pref.ActiveBands, OnBandChanged))
                     .Flex(basis: 280, shrink: 0),
                 Caption(totalNote).Flex(shrink: 0),
                 ScrollView(

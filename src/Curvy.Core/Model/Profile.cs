@@ -14,6 +14,7 @@ public record Profile(
     public static Profile New(string name, AutoEqCorrection? autoEq = null)
     {
         var now = DateTimeOffset.UtcNow;
-        return new Profile(Guid.NewGuid(), name, autoEq, true, Preference.Empty, false, now, now);
+        // The profile preference starts off; the AutoEQ correction (if any) is what a new profile is for.
+        return new Profile(Guid.NewGuid(), name, autoEq, true, Preference.Empty with { Enabled = false }, false, now, now);
     }
 }

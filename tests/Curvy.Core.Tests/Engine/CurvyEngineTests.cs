@@ -242,6 +242,21 @@ public sealed class CurvyEngineTests : IDisposable
     }
 
     [Test]
+    public async Task SetPreamp_ManualClampsAndPersists_AndWritesOutput()
+    {
+        var e = NewEngine();
+        e.SetPreamp(PreampMode.Manual, -50);
+        await Assert.That(e.Settings.PreampMode).IsEqualTo(PreampMode.Manual);
+        await Assert.That(e.Settings.ManualPreampDb).IsEqualTo(-30);
+        await Assert.That(e.Current.PreampDb).IsEqualTo(-30);
+        e.SetPreamp(PreampMode.Manual, 20);
+        await Assert.That(e.Settings.ManualPreampDb).IsEqualTo(12);
+        var e2 = NewEngine();
+        await Assert.That(e2.Settings.PreampMode).IsEqualTo(PreampMode.Manual);
+        await Assert.That(File.ReadAllText(Path.Combine(ApoDir, "Curvy", "curvy.txt"))).Contains("Preamp: 12");
+    }
+
+    [Test]
     public async Task SetFirstRunShown_Persists_WithoutRewritingOutput()
     {
         var e = NewEngine();
