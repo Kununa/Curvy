@@ -1,7 +1,6 @@
 using Curvy.Core.Engine;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
-using Microsoft.UI.Xaml;
 using static Microsoft.UI.Reactor.Factories;
 
 namespace Curvy.App.Tray;
@@ -17,10 +16,9 @@ public record TrayMenuProps(
     Action OnExit);
 
 /// <summary>
-/// Non-visual component owning the system-tray icon. Left click opens/focuses the main
-/// window; right click shows a Reactor tray flyout acting as the context menu
-/// (Reactor's tray has no native HMENU, but <see cref="ReactorTrayIcon.ShowFlyout"/>
-/// light-dismisses like a menu, so no H.NotifyIcon fallback is needed).
+/// Non-visual component owning the system-tray icon. Left click opens/focuses the main window;
+/// right click shows a native popup menu (<see cref="NativeMenu"/>), which closes on any outside
+/// click like every other tray menu.
 /// </summary>
 public sealed class TrayMenu : Component<TrayMenuProps>
 {
@@ -46,7 +44,7 @@ public sealed class TrayMenu : Component<TrayMenuProps>
         {
             if (tray is null) return () => { };
             EventHandler click = (_, _) => latest.Current.OnOpen();
-            EventHandler rightClick = (_, _) => tray.ShowFlyout(BuildMenu(latest.Current, tray));
+            EventHandler rightClick = (_, _) => NativeMenu.Show(BuildMenu(latest.Current));
             tray.Click += click;
             tray.RightClick += rightClick;
             return () =>
@@ -59,47 +57,26 @@ public sealed class TrayMenu : Component<TrayMenuProps>
         return Empty();
     }
 
-    static Element BuildMenu(TrayMenuProps p, ReactorTrayIcon tray)
+    static List<NativeMenuItem> BuildMenu(TrayMenuProps p)
     {
-        Action Close(Action a) => () =>
-        {
-            tray.HideFlyout();
-            a();
-        };
-        static string Check(bool on) => on ? "✓  " : "     ";
+        // '&' marks an access key in native menus; a profile named "Bass & Treble" must show it literally.
+        static string Text(string s) => s.Replace("&", "&&");
 
-        var items = new List<Element>
+        var items = new List<NativeMenuItem>
         {
-            MenuItem(Check(p.ActiveId is null) + "No profile", Close(() => p.OnActivate(null))),
+            new("No profile", () => p.OnActivate(null), Checked: p.ActiveId is null),
         };
+        if (p.Profiles.Count > 0) items.Add(NativeMenuItem.Separator);
         foreach (var (id, name) in p.Profiles)
-            items.Add(MenuItem(Check(p.ActiveId == id) + name, Close(() => p.OnActivate(id))));
-        items.Add(Separator());
+            items.Add(new(Text(name), () => p.OnActivate(id), Checked: p.ActiveId == id));
+        items.Add(NativeMenuItem.Separator);
         // While disconnected (after a restore) the EQ toggle can't help: open the window (Reconnect) instead.
         items.Add(p.Disconnected
-            ? MenuItem("     EQ disconnected…", Close(p.OnOpen))
-            : MenuItem(Check(p.MasterEnabled) + "EQ on/off", Close(() => p.OnMasterToggle(!p.MasterEnabled))));
-        items.Add(Separator());
-        items.Add(MenuItem("Open Curvy", Close(p.OnOpen)));
-        items.Add(MenuItem("Exit", Close(p.OnExit)));
-
-        return VStack(2, items.ToArray()).Padding(6).MinWidth(200);
+            ? new("EQ disconnected…", p.OnOpen)
+            : new("EQ on", () => p.OnMasterToggle(!p.MasterEnabled), Checked: p.MasterEnabled));
+        items.Add(NativeMenuItem.Separator);
+        items.Add(new("Open Curvy", p.OnOpen));
+        items.Add(new("Exit", p.OnExit));
+        return items;
     }
-
-    static Element MenuItem(string label, Action onClick) =>
-        Button(label, onClick)
-            .HAlign(HorizontalAlignment.Stretch)
-            .BorderThickness(0)
-            .Set(b =>
-            {
-                b.HorizontalContentAlignment = HorizontalAlignment.Left;
-                b.Background = null;
-            });
-
-    static Element Separator() => Rectangle().Height(1).Margin(4, 2).Opacity(0.3).Set(r =>
-        r.Fill = Application.Current?.Resources is { } res
-                 && res.TryGetValue("TextFillColorSecondaryBrush", out var b)
-                 && b is Microsoft.UI.Xaml.Media.Brush brush
-            ? brush
-            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray));
 }
