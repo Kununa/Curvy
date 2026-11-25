@@ -13,6 +13,9 @@
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- Bundle the WinAppSDK runtime: no separate runtime install needed, and `dotnet watch run`
+         hot reload survives incremental rebuilds (Reactor docs, packaging guide). -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableMsixTooling>false</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
