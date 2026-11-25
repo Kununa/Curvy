@@ -1,3 +1,4 @@
+using Curvy.Core.AutoEq;
 using Curvy.App.Services;
 using Curvy.Core.Chain;
 using Curvy.Core.Filters;
@@ -268,7 +269,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
                     ? VStack(8,
                         VStack(2,
                             Body(ae.Source.Headphone),
-                            Caption($"{ae.Source.Source} · {ae.Source.Rig} · {ae.Filters.Count} filters · fetched {ae.Source.FetchedAt.LocalDateTime:d}")),
+                            Caption(AutoEqText.Join(ae.Source.Source, ae.Source.Rig, $"{ae.Filters.Count} filters", $"fetched {ae.Source.FetchedAt.LocalDateTime:d}"))),
                         autoEqSearch)
                     : null)
             : VStack(8,

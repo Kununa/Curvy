@@ -22,7 +22,7 @@ public sealed class AutoEqPicker : Component<AutoEqPickerProps>
 {
     const int MaxSuggestions = 20;
 
-    static string Label(AutoEqIndexEntry e) => $"{e.Name} · {e.Source} · {e.Rig}";
+    static string Label(AutoEqIndexEntry e) => AutoEqText.Join(e.Name, e.Source, e.Rig);
 
     public override Element Render()
     {

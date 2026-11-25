@@ -37,6 +37,10 @@ public sealed class AutoEqClientTests : IDisposable
 
     private static HttpResponseMessage Ok(string s) => new(HttpStatusCode.OK) { Content = new StringContent(s) };
 
+    /// <summary>Index downloads only (a refresh also looks up rigs per source, best effort).</summary>
+    private static int IndexRequests(FakeHandler h) =>
+        h.Requests.Count(r => r.RequestUri!.AbsolutePath.EndsWith("INDEX.md"));
+
     private void SeedCache(DateTimeOffset fetchedAt, string? metaOverride = null)
     {
         File.WriteAllText(Path.Combine(_dir, "INDEX.md"), IndexMd);
@@ -62,7 +66,7 @@ public sealed class AutoEqClientTests : IDisposable
         var c = Client(h);
         var list = await c.GetIndexAsync();
         await Assert.That(list.Count).IsEqualTo(3);
-        await Assert.That(h.Requests).HasSingleItem();
+        await Assert.That(IndexRequests(h)).IsEqualTo(1);
         await Assert.That(h.Requests[0].RequestUri!.ToString()).IsEqualTo(AutoEqClient.BaseUrl + "INDEX.md");
         await Assert.That(c.IndexFetchedAt).IsEqualTo(_time.GetUtcNow());
     }
@@ -90,7 +94,7 @@ public sealed class AutoEqClientTests : IDisposable
         var h = new FakeHandler(_ => Ok(IndexMd));
         var list = await Client(h).GetIndexAsync();
         await Assert.That(list.Count).IsEqualTo(2);
-        await Assert.That(h.Requests).HasSingleItem();
+        await Assert.That(IndexRequests(h)).IsEqualTo(1);
     }
 
     [Test]
@@ -154,8 +158,52 @@ public sealed class AutoEqClientTests : IDisposable
         var c = Client(h);
         var list = await c.GetIndexAsync();
         await c.FetchCorrectionAsync(list[0]);
-        await Assert.That(h.Requests.Count).IsEqualTo(2);
+        await Assert.That(h.Requests.Count).IsGreaterThanOrEqualTo(2); // index, rig lookup(s), correction
         foreach (var r in h.Requests)
             await Assert.That(r.Headers.UserAgent.ToString()).StartsWith("Curvy/");
+    }
+
+    private const string OratoryNameIndex =
+        "url\tsource_name\tname\tform\trig\n" +
+        "https://x/a.pdf\tSennheiser HD 600\tSennheiser HD 600\tover-ear\tGRAS 45BC-10\n" +
+        "https://x/b.pdf\tIgnored\t\tignore\t\n";
+
+    [Test]
+    public async Task GetIndex_FillsMissingRigs_FromNameIndex_AndCachesThem()
+    {
+        var h = new FakeHandler(r => r.RequestUri!.AbsoluteUri switch
+        {
+            var u when u.EndsWith("INDEX.md") => Ok(IndexMd),
+            var u when u == new Uri(AutoEqRigs.NameIndexUrl("oratory1990")).AbsoluteUri => Ok(OratoryNameIndex),
+            _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+        });
+        var list = await Client(h).GetIndexAsync(forceRefresh: true);
+        await Assert.That(list.Single(e => e.Name == "Sennheiser HD 600").Rig).IsEqualTo("GRAS 45BC-10");
+        await Assert.That(list.Single(e => e.Name == "Beyerdynamic DT 880").Rig).IsEqualTo("");
+
+        // Cached: a later load from the fresh cache (no network) still has the rig.
+        var offline = new FakeHandler(_ => throw new InvalidOperationException("network"));
+        var cached = await Client(offline).GetIndexAsync();
+        await Assert.That(cached.Single(e => e.Name == "Sennheiser HD 600").Rig).IsEqualTo("GRAS 45BC-10");
+    }
+
+    [Test]
+    public async Task GetIndex_RigLookupFailure_DoesNotFailTheIndex()
+    {
+        var h = new FakeHandler(r => r.RequestUri!.AbsolutePath.EndsWith("INDEX.md")
+            ? Ok(IndexMd)
+            : new HttpResponseMessage(HttpStatusCode.NotFound));
+        var list = await Client(h).GetIndexAsync(forceRefresh: true);
+        await Assert.That(list.Count).IsEqualTo(2);
+        await Assert.That(list.All(e => e.Rig == "")).IsTrue();
+    }
+
+    [Test]
+    public async Task ParseNameIndex_MatchesByNameAndForm()
+    {
+        var map = AutoEqRigs.ParseNameIndex(OratoryNameIndex.Replace("\n", "\r\n"));
+        await Assert.That(map["Sennheiser HD 600|over-ear"]).IsEqualTo("GRAS 45BC-10");
+        await Assert.That(map.ContainsKey("")).IsFalse();
+        await Assert.That(AutoEqRigs.ParseNameIndex("not a tsv")).IsEmpty();
     }
 }

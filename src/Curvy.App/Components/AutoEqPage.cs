@@ -265,7 +265,7 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                             .VAlign(VerticalAlignment.Center)
                             .Flex(grow: 1, basis: 0),
                         ComboBox(
-                                h.Results.Select(r => $"{r.Source} · {r.Rig}").ToArray(),
+                                h.Results.Select(r => AutoEqText.Join(r.Source, r.Rig)).ToArray(),
                                 h.Results.ToList().IndexOf(entry),
                                 i =>
                                 {
@@ -321,7 +321,7 @@ public sealed class AutoEqPage : Component<AutoEqPageProps>
                     GraphSeriesStyle.Total),
             };
             graphArea = VStack(4,
-                Caption($"Preview (not applied): {preview.Entry.Name} · {preview.Entry.Source} · {preview.Entry.Rig} · {shown.Filters.Count} filters"
+                Caption("Preview (not applied): " + AutoEqText.Join(preview.Entry.Name, preview.Entry.Source, preview.Entry.Rig, $"{shown.Filters.Count} filters")
                         + (replaceTarget is null ? "" : $" · Total includes {replaceTarget.Name}'s preference")),
                 Component<EqGraph, EqGraphProps>(new EqGraphProps(series, [], NoBandEdit)).Height(240));
         }

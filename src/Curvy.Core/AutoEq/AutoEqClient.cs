@@ -27,6 +27,8 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
 
     private string IndexPath => Path.Combine(cacheDir, "INDEX.md");
     private string MetaPath => Path.Combine(cacheDir, "index.meta.json");
+    private string RigsPath => Path.Combine(cacheDir, "rigs.json");
+    private const int RigFetchConcurrency = 6;
 
     public DateTimeOffset? IndexFetchedAt => ReadMeta();
 
@@ -37,7 +39,7 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
         if (!forceRefresh && hasFile && fetchedAt is { } at && time.GetUtcNow() - at < MaxIndexAge)
         {
             var cached = AutoEqIndexParser.Parse(File.ReadAllText(IndexPath));
-            if (cached.Count > 0) return cached;
+            if (cached.Count > 0) return AutoEqRigs.Apply(cached, ReadRigs());
         }
 
         try
@@ -49,11 +51,11 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
             AtomicFile.WriteAllText(IndexPath, text);
             AtomicFile.WriteAllText(MetaPath,
                 JsonSerializer.Serialize(new Meta(SchemaVersion, time.GetUtcNow())));
-            return entries;
+            return AutoEqRigs.Apply(entries, await RefreshRigsAsync(entries, ct).ConfigureAwait(false));
         }
         catch (AutoEqUnavailableException) when (hasFile && FallbackEntries() is { Count: > 0 })
         {
-            return FallbackEntries();
+            return AutoEqRigs.Apply(FallbackEntries(), ReadRigs());
         }
     }
 
@@ -64,6 +66,60 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
         if (filters.Count == 0) throw new AutoEqUnavailableException("AutoEQ file contains no filters.");
         return new AutoEqCorrection(
             new AutoEqSource(e.Name, e.Source, e.Rig, e.RelativePath, time.GetUtcNow()), filters);
+    }
+
+    /// <summary>
+    /// Best effort: fetches <c>name_index.tsv</c> for each source whose entries lack a rig (some sources have
+    /// none: skipped), merges over the cached rigs and caches the result. Never fails the index load.
+    /// </summary>
+    private async Task<AutoEqRigs.Map> RefreshRigsAsync(IReadOnlyList<AutoEqIndexEntry> entries, CancellationToken ct)
+    {
+        var rigs = ReadRigs() ?? new AutoEqRigs.Map();
+        using var gate = new SemaphoreSlim(RigFetchConcurrency);
+        var fetched = await Task.WhenAll(AutoEqRigs.SourcesMissingRig(entries).Select(async source =>
+        {
+            await gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var map = AutoEqRigs.ParseNameIndex(
+                    await GetStringAsync(AutoEqRigs.NameIndexUrl(source), ct).ConfigureAwait(false));
+                return (source, map);
+            }
+            catch (AutoEqUnavailableException)
+            {
+                return (source, map: (Dictionary<string, string>?)null);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        })).ConfigureAwait(false);
+
+        var changed = false;
+        foreach (var (source, map) in fetched)
+        {
+            if (map is not { Count: > 0 }) continue;
+            rigs[source] = map;
+            changed = true;
+        }
+        if (changed)
+        {
+            try { AtomicFile.WriteAllText(RigsPath, JsonSerializer.Serialize(rigs)); }
+            catch (IOException) { /* still applied in memory; refetched next refresh */ }
+        }
+        return rigs;
+    }
+
+    private AutoEqRigs.Map? ReadRigs()
+    {
+        try
+        {
+            return File.Exists(RigsPath) ? JsonSerializer.Deserialize<AutoEqRigs.Map>(File.ReadAllText(RigsPath)) : null;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private IReadOnlyList<AutoEqIndexEntry> FallbackEntries()
