@@ -68,8 +68,12 @@
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <!-- Trimming stays off: it disables System.Text.Json reflection serialization by default, which would
-         silently break settings/profiles/AutoEQ metadata in published builds. -->
-    <PublishTrimmed>False</PublishTrimmed>
+    <!-- Trimmed Release publishes (about 318 -> 183 MB unpacked). Safe because all JSON is
+         source-generated (Curvy.Core is IsTrimmable; its tests run with reflection JSON disabled).
+         The only trim warning left is IL2104 for SkiaSharp.Views.WinUI.Native.Projection (the graph's
+         SkiaSharp view, via ScottPlot): two IL2026 in its generated C#/WinRT activation code
+         (DllModule / WinrtModule.GetActivationFactory). A trimmed build was run end to end (all pages,
+         AutoEQ search + fetch, graph rendering and dragging, tray) without issues. -->
+    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
   </PropertyGroup>
 </Project>
