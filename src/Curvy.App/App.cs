@@ -3,7 +3,13 @@ using Curvy.App.Services;
 using Curvy.App.Tray;
 using Microsoft.UI.Reactor;
 using Microsoft.UI.Reactor.Core;
+using Velopack;
 using static Microsoft.UI.Reactor.Factories;
+
+// Velopack first: an install/uninstall hook run is handled here and exits (no-op otherwise).
+VelopackApp.Build()
+    .OnBeforeUninstallFastCallback(_ => Installer.CleanUpBeforeUninstall())
+    .Run();
 
 // One Curvy per session: a second launch hands its activation to the running one and exits.
 if (!SingleInstance.TryClaim()) return;

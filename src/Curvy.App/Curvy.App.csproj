@@ -38,6 +38,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="ScottPlot.WinUI" Version="5.1.59" />
+    <!-- Installer + uninstaller (tools/installer/pack.ps1). Keep in step with the vpk tool version. -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
     <!-- ScottPlot.WinUI depends on the WindowsAppSDK metapackage (>= 1.5). Referencing the current
          2.x metapackage directly aligns it with the split packages Reactor brings. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
