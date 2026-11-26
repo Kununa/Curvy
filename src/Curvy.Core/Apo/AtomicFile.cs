@@ -39,10 +39,13 @@ public static class AtomicFile
         }
     }
 
-    /// <summary>The APO service may hold the target open briefly; retry the final replace a few times.</summary>
+    /// <summary>
+    /// The APO service may hold the target open briefly; retry the final replace for about 250 ms
+    /// (5 pauses of 50 ms) before giving up, which covers a slow or busy machine.
+    /// </summary>
     private static void MoveWithRetry(string tmp, string target, bool overwrite)
     {
-        const int attempts = 3;
+        const int attempts = 6;
         for (var i = 1; ; i++)
         {
             try

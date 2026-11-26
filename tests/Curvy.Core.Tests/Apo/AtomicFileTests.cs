@@ -17,10 +17,15 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Combine(dir, "config.txt");
         File.WriteAllText(path, "old");
         using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var release = Task.Run(() => { Thread.Sleep(80); held.Dispose(); });
+        // A dedicated thread, and the 80 ms only start once it runs: thread-pool start-up delay on a
+        // busy CI runner must not eat into AtomicFile's retry window.
+        using var started = new ManualResetEventSlim();
+        var releaser = new Thread(() => { started.Set(); Thread.Sleep(80); held.Dispose(); });
+        releaser.Start();
+        started.Wait();
 
         AtomicFile.WriteAllText(path, "new");
-        await release;
+        releaser.Join();
 
         await Assert.That(File.ReadAllText(path)).IsEqualTo("new");
         await Assert.That(Directory.GetFiles(dir, "*.tmp")).IsEmpty();
