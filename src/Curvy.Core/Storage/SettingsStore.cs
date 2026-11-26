@@ -7,8 +7,6 @@ namespace Curvy.Core.Storage;
 
 public sealed class SettingsStore(string dir)
 {
-    private sealed record Wrapper(int SchemaVersion, CurvySettings? Settings);
-
     private string FilePath => Path.Combine(dir, "settings.json");
 
     public CurvySettings Load()
@@ -16,7 +14,7 @@ public sealed class SettingsStore(string dir)
         try
         {
             if (!File.Exists(FilePath)) return CurvySettings.Default;
-            var w = JsonSerializer.Deserialize<Wrapper>(File.ReadAllText(FilePath), JsonFiles.Options);
+            var w = JsonSerializer.Deserialize(File.ReadAllText(FilePath), StorageJsonContext.Default.SettingsFile);
             if (w?.Settings is null || w.SchemaVersion > JsonFiles.CurrentSchemaVersion) return CurvySettings.Default;
             return Normalize(w.Settings);
         }
@@ -43,6 +41,6 @@ public sealed class SettingsStore(string dir)
     {
         Directory.CreateDirectory(dir);
         AtomicFile.WriteAllText(FilePath,
-            JsonSerializer.Serialize(new Wrapper(JsonFiles.CurrentSchemaVersion, s), JsonFiles.Options));
+            JsonSerializer.Serialize(new SettingsFile(JsonFiles.CurrentSchemaVersion, s), StorageJsonContext.Default.SettingsFile));
     }
 }

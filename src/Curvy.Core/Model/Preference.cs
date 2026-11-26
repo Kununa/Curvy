@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Curvy.Core.Filters;
 
 namespace Curvy.Core.Model;
@@ -19,6 +20,7 @@ public record Preference(
     /// <see cref="Mode"/>, or for older preferences: parametric if any band changes the sound,
     /// otherwise simple.
     /// </summary>
+    [JsonIgnore]
     public PreferenceMode EffectiveMode =>
         Mode ?? (Bands.Any(b => b.GainDb != 0) ? PreferenceMode.Parametric : PreferenceMode.Simple);
 
@@ -45,6 +47,7 @@ public record Preference(
             .ToImmutableList();
 
     /// <summary>The bands the user can edit right now (empty when disabled or in simple mode).</summary>
+    [JsonIgnore]
     public ImmutableList<Filter> ActiveBands =>
         Enabled && EffectiveMode == PreferenceMode.Parametric ? Bands : [];
 

@@ -7,8 +7,6 @@ namespace Curvy.Core.Storage;
 
 public sealed class ProfileStore(string dir)
 {
-    private sealed record Wrapper(int SchemaVersion, Profile? Profile);
-
     private string PathFor(Guid id) => Path.Combine(dir, id + ".json");
 
     public IReadOnlyList<Profile> LoadAll()
@@ -21,7 +19,7 @@ public sealed class ProfileStore(string dir)
             {
                 try
                 {
-                    var w = JsonSerializer.Deserialize<Wrapper>(File.ReadAllText(file), JsonFiles.Options);
+                    var w = JsonSerializer.Deserialize(File.ReadAllText(file), StorageJsonContext.Default.ProfileFile);
                     if (w is null || w.SchemaVersion > JsonFiles.CurrentSchemaVersion || w.Profile is null)
                     {
                         Debug.WriteLine($"Curvy: skipping profile file {file} (unsupported or empty)");
@@ -46,7 +44,7 @@ public sealed class ProfileStore(string dir)
     public void Save(Profile p)
     {
         Directory.CreateDirectory(dir);
-        var json = JsonSerializer.Serialize(new Wrapper(JsonFiles.CurrentSchemaVersion, p), JsonFiles.Options);
+        var json = JsonSerializer.Serialize(new ProfileFile(JsonFiles.CurrentSchemaVersion, p), StorageJsonContext.Default.ProfileFile);
         AtomicFile.WriteAllText(PathFor(p.Id), json);
     }
 

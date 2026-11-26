@@ -50,7 +50,7 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
             Directory.CreateDirectory(cacheDir);
             AtomicFile.WriteAllText(IndexPath, text);
             AtomicFile.WriteAllText(MetaPath,
-                JsonSerializer.Serialize(new Meta(SchemaVersion, time.GetUtcNow())));
+                JsonSerializer.Serialize(new AutoEqCacheMeta(SchemaVersion, time.GetUtcNow()), AutoEqJsonContext.Default.AutoEqCacheMeta));
             return AutoEqRigs.Apply(entries, await RefreshRigsAsync(entries, ct).ConfigureAwait(false));
         }
         catch (AutoEqUnavailableException) when (hasFile && FallbackEntries() is { Count: > 0 })
@@ -104,7 +104,7 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
         }
         if (changed)
         {
-            try { AtomicFile.WriteAllText(RigsPath, JsonSerializer.Serialize(rigs)); }
+            try { AtomicFile.WriteAllText(RigsPath, JsonSerializer.Serialize(rigs, AutoEqJsonContext.Default.Map)); }
             catch (IOException) { /* still applied in memory; refetched next refresh */ }
         }
         return rigs;
@@ -114,7 +114,7 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
     {
         try
         {
-            return File.Exists(RigsPath) ? JsonSerializer.Deserialize<AutoEqRigs.Map>(File.ReadAllText(RigsPath)) : null;
+            return File.Exists(RigsPath) ? JsonSerializer.Deserialize(File.ReadAllText(RigsPath), AutoEqJsonContext.Default.Map) : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -154,7 +154,7 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
         try
         {
             if (!File.Exists(MetaPath)) return null;
-            var m = JsonSerializer.Deserialize<Meta>(File.ReadAllText(MetaPath));
+            var m = JsonSerializer.Deserialize(File.ReadAllText(MetaPath), AutoEqJsonContext.Default.AutoEqCacheMeta);
             return m is { SchemaVersion: SchemaVersion, FetchedAt: { } f } ? f : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -163,7 +163,4 @@ public sealed class AutoEqClient(HttpClient http, string cacheDir, TimeProvider 
         }
     }
 
-    private sealed record Meta(
-        [property: System.Text.Json.Serialization.JsonPropertyName("schemaVersion")] int SchemaVersion,
-        [property: System.Text.Json.Serialization.JsonPropertyName("fetchedAt")] DateTimeOffset? FetchedAt);
 }

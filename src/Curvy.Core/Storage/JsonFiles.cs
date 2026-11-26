@@ -1,18 +1,10 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Curvy.Core.Storage;
 
 public static class JsonFiles
 {
     public const int CurrentSchemaVersion = 1;
-
-    public static JsonSerializerOptions Options { get; } = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
-    };
 
     /// <summary>
     /// Renames an unparseable file to <c>&lt;name&gt;.bad</c> (replacing an older one) so the next save

@@ -1,6 +1,5 @@
 using System.IO;
 using System.Net;
-using System.Text.Json;
 using Curvy.Core.AutoEq;
 using Microsoft.Extensions.Time.Testing;
 using System.Threading.Tasks;
@@ -45,7 +44,7 @@ public sealed class AutoEqClientTests : IDisposable
     {
         File.WriteAllText(Path.Combine(_dir, "INDEX.md"), IndexMd);
         File.WriteAllText(Path.Combine(_dir, "index.meta.json"),
-            metaOverride ?? JsonSerializer.Serialize(new { schemaVersion = 1, fetchedAt }));
+            metaOverride ?? $"{{\"schemaVersion\":1,\"fetchedAt\":\"{fetchedAt:O}\"}}");
     }
 
     [Test]
