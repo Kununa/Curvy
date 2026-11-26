@@ -1,0 +1,94 @@
+# Builds the Velopack installer and publishes it as a GitHub Release. To build one locally, run the
+# "Publish app" and "Build installer" commands below with a version of your choice.
+#
+#   git tag v0.2.0 && git push origin v0.2.0      (or: Actions > Release > Run workflow)
+#
+# A version with a suffix (v0.2.0-beta.1) becomes a pre-release. Each release must be higher than
+# the last: vpk refuses to pack a version that isn't. Assets: Curvy.App-win-Setup.exe (installer),
+# Curvy.App-win-Portable.zip, plus the .nupkg/releases.win.json files Velopack updates read.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, without the v (e.g. 0.2.0)'
+        required: true
+
+permissions:
+  contents: write # create the release and its tag
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.version }}' } else { '${{ github.ref_name }}' }
+          $v = $v.Trim().TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Not a semver version: '$v'" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "pre=$(if ($v.Contains('-')) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: dotnet test --project tests/Curvy.Core.Tests -c Release
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # The previous release lets vpk build a delta package (smaller updates). None yet on the first run.
+      - name: Download previous release
+        shell: pwsh
+        run: |
+          dotnet vpk download github --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}" --outputDir artifacts/releases
+          if ($LASTEXITCODE) { Write-Warning 'No previous release downloaded; packing a full release only.' }
+          exit 0
+
+      - name: Publish app
+        run: >-
+          dotnet publish src/Curvy.App/Curvy.App.csproj -c Release -r win-x64 --self-contained
+          -p:Platform=x64 -p:Version=${{ steps.version.outputs.version }} -o artifacts/publish/win-x64
+
+      # Pack id Curvy.App = install folder %LocalAppData%\Curvy.App (never "Curvy": the uninstaller
+      # deletes its whole install folder, and %LocalAppData%\Curvy holds the user's profiles).
+      # Start menu shortcut only: Curvy lives in the tray.
+      - name: Build installer
+        run: >-
+          dotnet vpk pack
+          --packId Curvy.App
+          --packVersion ${{ steps.version.outputs.version }}
+          --packDir artifacts/publish/win-x64
+          --mainExe Curvy.App.exe
+          --runtime win-x64
+          --packTitle Curvy
+          --icon src/Curvy.App/Assets/curvy.ico
+          --shortcuts StartMenuRoot
+          --outputDir artifacts/releases
+
+      - name: Publish GitHub release
+        shell: pwsh
+        run: |
+          $extra = @()
+          if ('${{ steps.version.outputs.pre }}' -eq 'true') { $extra += '--pre' }
+          dotnet vpk upload github --repoUrl "https://github.com/${{ github.repository }}" `
+            --token "${{ secrets.GITHUB_TOKEN }}" --outputDir artifacts/releases `
+            --publish @extra `
+            --releaseName "Curvy ${{ steps.version.outputs.version }}" `
+            --tag "v${{ steps.version.outputs.version }}" `
+            --targetCommitish "${{ github.sha }}"
+          if ($LASTEXITCODE) { throw 'vpk upload failed' }
