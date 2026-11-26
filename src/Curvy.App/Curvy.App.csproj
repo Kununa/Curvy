@@ -37,13 +37,15 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="ScottPlot.WinUI" Version="5.1.59" />
     <!-- Installer + uninstaller (built by .github/workflows/release.yml). Keep in step with the vpk
          tool version in dotnet-tools.json. -->
     <PackageReference Include="Velopack" Version="1.2.161" />
-    <!-- ScottPlot.WinUI depends on the WindowsAppSDK metapackage (>= 1.5). Referencing the current
-         2.x metapackage directly aligns it with the split packages Reactor brings. -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.7.0" />
+    <!-- Only the Windows App SDK parts Curvy uses (WinUI, plus Runtime for the self-contained
+         deployment; Foundation/AppLifecycle comes with WinUI), pinned to 2.7.0: Reactor alone would
+         resolve its 2.2 minimums. Not the full Microsoft.WindowsAppSDK metapackage, which also ships
+         the Windows AI/ML, Search and Widgets components (~55 MB of unused DLLs). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.7.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.7.0" />
   </ItemGroup>
 
   <!--
