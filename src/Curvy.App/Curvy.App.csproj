@@ -66,16 +66,16 @@
   </ItemGroup>
 
 
-  <!-- Publish Properties -->
-  <PropertyGroup>
-    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <!-- Trimmed Release publishes (about 318 -> 183 MB unpacked). Safe because all JSON is
-         source-generated (Curvy.Core is IsTrimmable; its tests run with reflection JSON disabled).
-         The only trim warning left is IL2104 for SkiaSharp.Views.WinUI.Native.Projection (the graph's
-         SkiaSharp view, via ScottPlot): two IL2026 in its generated C#/WinRT activation code
-         (DllModule / WinrtModule.GetActivationFactory). A trimmed build was run end to end (all pages,
-         AutoEQ search + fetch, graph rendering and dragging, tray) without issues. -->
-    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+  <!-- Publish Properties: Release publishes are Native AOT (one native Curvy.App.exe, no bundled
+       .NET runtime; trimming is implied). Needs the MSVC linker (VS Build Tools "Desktop development
+       with C++"; GitHub's windows runners have it). Debug builds and dotnet watch stay JIT.
+       AOT-safe because all JSON is source-generated, Curvy.Core is IsAotCompatible, there are no
+       trim/AOT warnings, and WinUI-derived classes (EqCanvas) are partial so C#/WinRT can generate
+       their interop code. A full AOT build was run end to end (all pages, AutoEQ search + fetch,
+       graph). Installer 133 MB (untrimmed JIT) -> 40 MB. -->
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <PublishAot>true</PublishAot>
+    <!-- The native exe's symbols (~80 MB) stay in obj/bin, out of the published folder and installer. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
   </PropertyGroup>
 </Project>

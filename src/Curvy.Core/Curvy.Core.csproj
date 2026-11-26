@@ -4,9 +4,9 @@
     <TargetFramework>net11.0-windows10.0.22621.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- Declares the library trim-safe and turns on the trim analyzers: reflection the trimmer can't
-         see (e.g. reflection-based System.Text.Json) becomes a build warning. -->
-    <IsTrimmable>true</IsTrimmable>
+    <!-- Declares the library trim- and AOT-safe and turns on those analyzers: reflection the trimmer
+         can't see (e.g. reflection-based System.Text.Json) or AOT can't compile becomes a build warning. -->
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
 </Project>

@@ -73,7 +73,9 @@ public sealed class EqGraph : Component<EqGraphProps>
 /// <item>handles: reused shapes, only moved (recreated when the band count or a lock changes).</item>
 /// </list>
 /// </summary>
-sealed class EqCanvas : Canvas
+// partial: under Native AOT, C#/WinRT generates the interop code a WinUI-derived class needs only
+// for partial classes; without it the layout pass fails with E_NOINTERFACE (crash 0xC000027B).
+sealed partial class EqCanvas : Canvas
 {
     // Plot-area insets (DIP): room for the gain labels + axis title on the left, frequency labels +
     // axis title at the bottom.
