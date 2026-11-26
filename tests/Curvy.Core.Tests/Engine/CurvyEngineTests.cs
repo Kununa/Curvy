@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Collections.Immutable;
 using Curvy.Core.Apo;
@@ -101,8 +102,8 @@ public sealed class CurvyEngineTests : IDisposable
         await Assert.That(File.Exists(NewApo().ConfigTxtPath + ".curvy-backup")).IsTrue();
         await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath + ".curvy-backup")).Contains("Include: peace.txt");
         await Assert.That(File.ReadAllText(NewApo().ConfigTxtPath)).Contains("# [Curvy] Include: peace.txt");
-        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
-        await Assert.That(new SettingsStore(SetDir).Load().DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
+        await Assert.That(new SettingsStore(SetDir).Load().DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -184,7 +185,7 @@ public sealed class CurvyEngineTests : IDisposable
         var raised = 0;
         e.Changed += (_, _) => raised++;
         e.DisableForeignLines([Line(0), Line(1)]);
-        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: a.txt", "Include: b.txt"], CollectionOrdering.Matching);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: a.txt", "Include: b.txt"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
         await Assert.That(raised).IsEqualTo(1);
     }
 
@@ -230,7 +231,7 @@ public sealed class CurvyEngineTests : IDisposable
         e.SaveProfile(WithFilter("charlie", 1000));
         e.SaveProfile(WithFilter("Alpha", 1000));
         e.SaveProfile(WithFilter("bravo", 1000));
-        await Assert.That(e.Profiles.Select(p => p.Name)).IsEquivalentTo(["Alpha", "bravo", "charlie"], CollectionOrdering.Matching);
+        await Assert.That(e.Profiles.Select(p => p.Name)).IsEquivalentTo(["Alpha", "bravo", "charlie"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -310,7 +311,7 @@ public sealed class CurvyEngineTests : IDisposable
         var idx = NewApo().ReadConfigTxt().First(l => l.Text == "Include: peace.txt").Index;
         e.DisableForeignLines([Line(idx)]);
         Assert.Throws<ConfigChangedException>(() => e.EnableForeignLine(idx, "# [Curvy] Include: other.txt"));
-        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], CollectionOrdering.Matching);
+        await Assert.That(e.Settings.DisabledForeignLines).IsEquivalentTo(["Include: peace.txt"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -343,7 +344,7 @@ public sealed class CurvyEngineTests : IDisposable
 
         Assert.Throws<ConfigChangedException>(() => e.DisableForeignLines([peace]));
 
-        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
     }
 
@@ -398,7 +399,7 @@ public sealed class CurvyEngineTests : IDisposable
 
         await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
         await Assert.That(e.CheckAndRepair().ReEnabledLines).IsEmpty();
-        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(before, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -411,7 +412,7 @@ public sealed class CurvyEngineTests : IDisposable
 
         await Assert.That(e.RestoreOriginalConfig()).IsTrue();
 
-        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         await Assert.That(e.Settings.IntegrationPaused).IsTrue();
         await Assert.That(e.Settings.DisabledForeignLines).IsEmpty();
         await Assert.That(new SettingsStore(SetDir).Load().IntegrationPaused).IsTrue();
@@ -431,7 +432,7 @@ public sealed class CurvyEngineTests : IDisposable
         await Assert.That(h.IncludeMissing).IsFalse();
         await Assert.That(h.ReEnabledLines).IsEmpty();
         await Assert.That(h.ActiveEqLikeForeignLines).IsEmpty();
-        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -446,7 +447,7 @@ public sealed class CurvyEngineTests : IDisposable
         e.SetMasterEnabled(false); // Mutate -> Apply
         e.Apply();
 
-        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(NewApo().ConfigTxtPath)).IsEquivalentTo(original, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         await Assert.That(Output()).Contains("# EQ off"); // curvy.txt is still written
         await Assert.That(NewEngine().Settings.IntegrationPaused).IsTrue(); // survives a restart
     }
@@ -465,7 +466,7 @@ public sealed class CurvyEngineTests : IDisposable
         await Assert.That(e.Settings.IntegrationPaused).IsFalse();
         await Assert.That(e.Settings.FirstRunShown).IsFalse(); // the first-run check runs again
         await Assert.That(NewApo().ReadConfigTxt().Any(l => l.Kind == ConfigLineKind.CurvyInclude)).IsTrue();
-        await Assert.That(File.ReadAllBytes(BackupPath)).IsEquivalentTo(original, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(BackupPath)).IsEquivalentTo(original, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]

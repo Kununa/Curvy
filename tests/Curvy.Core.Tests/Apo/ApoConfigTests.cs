@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Collections.Immutable;
 using Curvy.Core.Apo;
@@ -37,7 +38,7 @@ public sealed class ApoConfigTests : IDisposable
 
         var ex = Assert.Throws<InvalidOperationException>(() => apo.EnsureCurvyInclude());
         await Assert.That(ex.Message).Contains("UTF-16");
-        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(bytes, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(bytes, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -46,7 +47,7 @@ public sealed class ApoConfigTests : IDisposable
         File.WriteAllText(cfg, "Include: peace.txt\r\nInclude: fletcher.txt");
         await Assert.That(apo.EnsureCurvyInclude()).IsTrue();
         await Assert.That(apo.EnsureCurvyInclude()).IsFalse();
-        await Assert.That(File.ReadAllLines(cfg)).IsEquivalentTo(new[] { "Include: peace.txt", "Include: fletcher.txt", ConfigTxt.CurvyIncludeLine }, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllLines(cfg)).IsEquivalentTo(new[] { "Include: peace.txt", "Include: fletcher.txt", ConfigTxt.CurvyIncludeLine }, EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -73,7 +74,7 @@ public sealed class ApoConfigTests : IDisposable
     {
         await Assert.That(File.Exists(cfg)).IsFalse();
         await Assert.That(apo.EnsureCurvyInclude()).IsTrue();
-        await Assert.That(File.ReadAllLines(cfg)).IsEquivalentTo(new[] { ConfigTxt.CurvyIncludeLine }, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllLines(cfg)).IsEquivalentTo(new[] { ConfigTxt.CurvyIncludeLine }, EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -116,7 +117,7 @@ public sealed class ApoConfigTests : IDisposable
         apo.BackupOnce();
         File.WriteAllText(cfg, "changed");
         await Assert.That(apo.RestoreBackup()).IsTrue();
-        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(bytes, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(bytes, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -130,7 +131,7 @@ public sealed class ApoConfigTests : IDisposable
         await Assert.That(File.Exists(apo.OutputPath)).IsTrue();
         await Assert.That(File.ReadAllText(apo.OutputPath)).IsEqualTo(ApoFormatter.Format(r));
         await Assert.That(Directory.GetFiles(dir, "*.tmp", SearchOption.AllDirectories)).IsEmpty();
-        await Assert.That(File.ReadAllBytes(apo.OutputPath)[0]).IsNotEqualTo(0xEF);
+        await Assert.That(File.ReadAllBytes(apo.OutputPath)[0]).IsNotEqualTo((byte)0xEF);
         await Assert.That(apo.IsWritable()).IsTrue();
     }
 
@@ -151,7 +152,7 @@ public sealed class ApoConfigTests : IDisposable
         apo.EnsureCurvyInclude();
         apo.SetLineDisabled(1, "Include: x.txt", true);
         var expected = latin.GetBytes(line + "\r\n# [Curvy] Include: x.txt\r\n" + ConfigTxt.CurvyIncludeLine + "\r\n");
-        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(expected, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(expected, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
     }
 
     [Test]
@@ -160,8 +161,8 @@ public sealed class ApoConfigTests : IDisposable
         File.WriteAllBytes(cfg, [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes("Include: x.txt\r\n")]);
         apo.EnsureCurvyInclude();
         var b = File.ReadAllBytes(cfg);
-        await Assert.That(b[..3]).IsEquivalentTo(new byte[] { 0xEF, 0xBB, 0xBF }, CollectionOrdering.Matching);
-        await Assert.That(b[3]).IsEqualTo(0x49);
+        await Assert.That(b[..3]).IsEquivalentTo(new byte[] { 0xEF, 0xBB, 0xBF }, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
+        await Assert.That(b[3]).IsEqualTo((byte)0x49);
     }
 
     [Test]
@@ -170,11 +171,11 @@ public sealed class ApoConfigTests : IDisposable
         var orig = System.Text.Encoding.ASCII.GetBytes("Include: x.txt");
         File.WriteAllBytes(cfg, orig);
         apo.EnsureCurvyInclude();
-        await Assert.That(File.ReadAllBytes(cfg + ".curvy-backup")).IsEquivalentTo(orig, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg + ".curvy-backup")).IsEquivalentTo(orig, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         apo.SetLineDisabled(0, "Include: x.txt", true);
-        await Assert.That(File.ReadAllBytes(cfg + ".curvy-backup")).IsEquivalentTo(orig, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg + ".curvy-backup")).IsEquivalentTo(orig, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         await Assert.That(apo.RestoreBackup()).IsTrue();
-        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(orig, CollectionOrdering.Matching);
+        await Assert.That(File.ReadAllBytes(cfg)).IsEquivalentTo(orig, EqualityComparer<byte>.Default, CollectionOrdering.Matching);
         await Assert.That(Directory.GetFiles(dir, "*.tmp")).IsEmpty();
     }
 

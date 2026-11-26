@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using Curvy.Core.Chain;
 using Curvy.Core.Filters;
@@ -31,7 +32,7 @@ public class EqChainTests
     public async Task Chain_Order_AutoEq_Profile_Universal()
     {
         var r = EqChain.Build(MakeProfile(), MakeSettings());
-        await Assert.That(r.Filters).IsEquivalentTo([A, P, U], CollectionOrdering.Matching);
+        await Assert.That(r.Filters).IsEquivalentTo([A, P, U], EqualityComparer<Filter>.Default, CollectionOrdering.Matching);
         await Assert.That(r.Bypassed).IsFalse();
     }
 
@@ -39,7 +40,7 @@ public class EqChainTests
     public async Task Chain_IgnoreUniversal_DropsUniversal()
     {
         var r = EqChain.Build(MakeProfile(ignoreUniversal: true), MakeSettings());
-        await Assert.That(r.Filters).IsEquivalentTo([A, P], CollectionOrdering.Matching);
+        await Assert.That(r.Filters).IsEquivalentTo([A, P], EqualityComparer<Filter>.Default, CollectionOrdering.Matching);
         await Assert.That(EqChain.Layer(MakeProfile(ignoreUniversal: true), MakeSettings(), ChainLayer.Universal)).IsEmpty();
     }
 
@@ -47,7 +48,7 @@ public class EqChainTests
     public async Task Chain_AutoEqDisabled_DropsAutoEq()
     {
         var r = EqChain.Build(MakeProfile(autoEqEnabled: false), MakeSettings());
-        await Assert.That(r.Filters).IsEquivalentTo([P, U], CollectionOrdering.Matching);
+        await Assert.That(r.Filters).IsEquivalentTo([P, U], EqualityComparer<Filter>.Default, CollectionOrdering.Matching);
         await Assert.That(EqChain.Layer(MakeProfile(autoEqEnabled: false), MakeSettings(), ChainLayer.AutoEq)).IsEmpty();
     }
 
@@ -55,7 +56,7 @@ public class EqChainTests
     public async Task Chain_NoActiveProfile_AppliesUniversalOnly()
     {
         var r = EqChain.Build(null, MakeSettings());
-        await Assert.That(r.Filters).IsEquivalentTo([U], CollectionOrdering.Matching);
+        await Assert.That(r.Filters).IsEquivalentTo([U], EqualityComparer<Filter>.Default, CollectionOrdering.Matching);
         await Assert.That(EqChain.Layer(null, MakeSettings(), ChainLayer.AutoEq)).IsEmpty();
         await Assert.That(EqChain.Layer(null, MakeSettings(), ChainLayer.ProfilePreference)).IsEmpty();
     }

@@ -44,8 +44,14 @@ jobs:
           "version=$v" >> $env:GITHUB_OUTPUT
           "pre=$(if ($v.Contains('-')) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
 
-      - name: Test
-        run: dotnet test --project tests/Curvy.Core.Tests -c Release
+      # The tests run as Native AOT, like the app ships: publish the test project, run its exe.
+      - name: Test (Native AOT)
+        shell: pwsh
+        run: |
+          dotnet publish tests/Curvy.Core.Tests/Curvy.Core.Tests.csproj -c Release -r win-x64 -o artifacts/tests
+          if ($LASTEXITCODE) { throw 'Publishing the tests failed' }
+          ./artifacts/tests/Curvy.Core.Tests.exe
+          if ($LASTEXITCODE) { throw 'Tests failed' }
 
       - name: Restore tools
         run: dotnet tool restore

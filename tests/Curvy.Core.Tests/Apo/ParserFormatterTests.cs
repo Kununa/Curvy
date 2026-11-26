@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Curvy.Core.Apo;
 using Curvy.Core.Chain;
 using Curvy.Core.Filters;
@@ -69,6 +70,6 @@ public class ParserFormatterTests
             new(FilterType.HighShelf, 10000, -3.1, 0.71),
         ];
         var text = ApoFormatter.Format(new ChainResult(false, -4, [.. input]));
-        await Assert.That(ParametricEqParser.Parse(text)).IsEquivalentTo(input, CollectionOrdering.Matching);
+        await Assert.That(ParametricEqParser.Parse(text)).IsEquivalentTo(input, EqualityComparer<Filter>.Default, CollectionOrdering.Matching);
     }
 }

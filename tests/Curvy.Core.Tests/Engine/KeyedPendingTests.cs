@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Curvy.Core.Engine;
 using System.Threading.Tasks;
 
@@ -19,7 +20,7 @@ public class KeyedPendingTests
         await Assert.That(p.Contains("settings")).IsFalse();
         foreach (var action in p.TakeAll()) action();
 
-        await Assert.That(log).IsEquivalentTo(["a2", "u", "b"], CollectionOrdering.Matching);
+        await Assert.That(log).IsEquivalentTo(["a2", "u", "b"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
         await Assert.That(p.IsEmpty).IsTrue();
     }
 

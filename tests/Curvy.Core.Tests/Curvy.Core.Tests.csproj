@@ -8,6 +8,10 @@
     <OutputType>Exe</OutputType>
     <!-- Like a trimmed release: any reflection-based JSON left in the engine throws here. -->
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- The tests also run as Native AOT, like the app ships (dotnet publish -c Release, then run
+         Curvy.Core.Tests.exe; the release workflow does this). Also turns on the AOT analyzers in
+         every build, so reflection-based assertions (e.g. IsEquivalentTo without a comparer) warn. -->
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

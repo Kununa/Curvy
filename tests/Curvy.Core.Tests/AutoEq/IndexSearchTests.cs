@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Curvy.Core.AutoEq;
 using System.Threading.Tasks;
 
@@ -60,7 +61,7 @@ from the same source.
     public async Task Search_ExactBeforePrefixBeforeTokens()
     {
         var r = AutoEqSearch.Search(Index(), "Beyerdynamic DT 880");
-        await Assert.That(r.Select(x => x.Name).ToArray()).IsEquivalentTo(["Beyerdynamic DT 880", "Beyerdynamic DT 880 Black Edition"], CollectionOrdering.Matching);
+        await Assert.That(r.Select(x => x.Name).ToArray()).IsEquivalentTo(["Beyerdynamic DT 880", "Beyerdynamic DT 880 Black Edition"], EqualityComparer<string>.Default, CollectionOrdering.Matching);
     }
 
     [Test]

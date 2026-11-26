@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Curvy.Core.Filters;
 using Curvy.Core.Model;
 using System.Threading.Tasks;
@@ -45,8 +46,8 @@ public class ToneControlsTests
         await Assert.That(simple.ActiveBands).IsEmpty();
 
         var parametric = simple with { Mode = PreferenceMode.Parametric };
-        await Assert.That(parametric.AllFilters().ToList()).IsEquivalentTo([band]);
-        await Assert.That(parametric.ActiveBands).IsEquivalentTo([band]);
+        await Assert.That(parametric.AllFilters().ToList()).IsEquivalentTo([band], EqualityComparer<Filter>.Default);
+        await Assert.That(parametric.ActiveBands).IsEquivalentTo([band], EqualityComparer<Filter>.Default);
     }
 
     [Test]
@@ -85,7 +86,7 @@ public class ToneControlsTests
             new Filter(FilterType.LowShelf, 105, 6.5, 0.7, Enabled: false),
             new Filter(FilterType.Peaking, 2000, 2, 1.4),
         ]);
-        await Assert.That(bands.Select(b => b.FrequencyHz).ToList()).IsEquivalentTo([105.0, 2000.0, 10000.0]);
+        await Assert.That(bands.Select(b => b.FrequencyHz).ToList()).IsEquivalentTo([105.0, 2000.0, 10000.0], EqualityComparer<double>.Default);
         await Assert.That(bands[0].Type).IsEqualTo(FilterType.LowShelf);
         await Assert.That(bands[1].Q).IsEqualTo(1.4);
         await Assert.That(bands.All(b => b.GainDb == 0 && b.Enabled && b.FrequencyLocked)).IsTrue();

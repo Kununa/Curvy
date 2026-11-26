@@ -64,6 +64,14 @@ cd src/Curvy.App; dotnet watch run
 dotnet test --project tests/Curvy.Core.Tests
 ```
 
+Release builds are Native AOT, so they need the MSVC linker (Visual Studio Build Tools with
+"Desktop development with C++"). The tests run that way too, as in the release workflow:
+
+```powershell
+dotnet publish tests/Curvy.Core.Tests -c Release -r win-x64 -o artifacts/tests
+./artifacts/tests/Curvy.Core.Tests.exe
+```
+
 For development without touching your real setup, point Curvy at scratch folders:
 
 ```powershell
