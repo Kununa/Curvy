@@ -294,7 +294,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
 
         return (FlexColumn(
                 header.Flex(shrink: 0),
-                graph.Flex(basis: 280, shrink: 0),
+                graph.Flex(basis: 600, shrink: 0),
                 seriesToggles.Flex(shrink: 0),
                 ScrollView(body.Padding(0, 0, 16, 16)).Flex(grow: 1, basis: 0),
                 deleteDialog) with { RowGap = 12 })
