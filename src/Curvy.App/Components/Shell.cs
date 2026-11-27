@@ -135,6 +135,16 @@ public sealed class Shell : EngineComponent
                     Content = Button("Keep it on", host.KeepReEnabledLines).Margin(0, 0, 0, 8),
                     OnClosed = host.DismissReEnabledLines,
                 });
+        if (state.UpdateReady is { } updateVersion)
+            bars.Add(InfoBar($"Curvy {updateVersion} is ready", "Restart Curvy to finish updating.")
+                with
+                {
+                    IsOpen = true,
+                    IsClosable = false,
+                    Severity = InfoBarSeverity.Success,
+                    ActionButtonContent = "Restart to update",
+                    OnActionButtonClick = () => Updater.ApplyAndRestart(host),
+                });
         if (state.UiError is { } uiError)
             bars.Add(InfoBar("Something went wrong", uiError)
                 with { IsOpen = true, IsClosable = true, Severity = InfoBarSeverity.Error, OnClosed = host.DismissUiError });

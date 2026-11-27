@@ -81,6 +81,13 @@ namespace Curvy.App
                 return () => SingleInstance.SetHandler(null);
             }, window);
 
+            // Updates: one background check per start (installed copies only; see Updater).
+            UseEffect(() =>
+            {
+                Updater.CheckOnStartup(host);
+                return () => { };
+            }, true);
+
             // The first-run dialog lives in the window, so show it even after a --tray start.
             var firstRunPending = state.FirstRunLines is not null;
             UseEffect(() =>
@@ -109,7 +116,9 @@ namespace Curvy.App
                     else host.Now(e => e.SetMasterEnabled(on));
                 },
                 OpenWindow,
-                Exit));
+                Exit,
+                state.UpdateReady,
+                () => Updater.ApplyAndRestart(host)));
 
             var firstRun = state.FirstRunLines is { } lines
                 ? Component<FirstRunDialog, FirstRunDialogProps>(new FirstRunDialogProps(lines, host.CompleteFirstRun))

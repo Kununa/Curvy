@@ -43,7 +43,8 @@ public sealed record EngineState(
     IReadOnlyList<ConfigLine> ReEnabledLines,
     IReadOnlyList<ConfigLine>? FirstRunLines,
     bool IncludeRemovedRepeatedly,
-    long Version);
+    long Version,
+    string? UpdateReady = null);
 
 /// <summary>
 /// Process-wide owner of the <see cref="CurvyEngine"/>. Everything runs on the UI thread
@@ -82,6 +83,7 @@ public sealed class EngineHost
     AutoEqCorrectionCache? _autoEqCorrections;
     string? _startupError;
     string? _uiError;
+    string? _updateReady;
 
     EngineHost()
     {
@@ -435,6 +437,13 @@ public sealed class EngineHost
         _configDebouncer?.Dispose();
     }
 
+    /// <summary>A downloaded update (its version) is ready: offered as "Restart to update".</summary>
+    public void SetUpdateReady(string version)
+    {
+        _updateReady = version;
+        Publish();
+    }
+
     public void DismissUiError()
     {
         if (_uiError is null) return;
@@ -479,9 +488,9 @@ public sealed class EngineHost
 
     EngineState Snapshot() => _engine is { } e
         ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError,
-            _startupError, _uiError, _reEnabled, _firstRunLines, _includeLoop, ++_version)
+            _startupError, _uiError, _reEnabled, _firstRunLines, _includeLoop, ++_version, _updateReady)
         : new EngineState(ApoAvailable, false, TriedPath, [], CurvySettings.Default, null,
-            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, false, ++_version);
+            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, false, ++_version, _updateReady);
 }
 
 /// <summary>The <c>UseEngine()</c> hook: current <see cref="EngineState"/>, re-rendering on every change.</summary>

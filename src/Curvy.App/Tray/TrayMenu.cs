@@ -13,7 +13,9 @@ public record TrayMenuProps(
     Action<Guid?> OnActivate,
     Action<bool> OnMasterToggle,
     Action OnOpen,
-    Action OnExit);
+    Action OnExit,
+    string? UpdateVersion = null,
+    Action? OnInstallUpdate = null);
 
 /// <summary>
 /// Non-visual component owning the system-tray icon. Left click opens/focuses the main window;
@@ -75,6 +77,8 @@ public sealed class TrayMenu : Component<TrayMenuProps>
             ? new("EQ disconnected…", p.OnOpen)
             : new("EQ on", () => p.OnMasterToggle(!p.MasterEnabled), Checked: p.MasterEnabled));
         items.Add(NativeMenuItem.Separator);
+        if (p.UpdateVersion is { } version && p.OnInstallUpdate is { } install)
+            items.Add(new($"Restart to update to {Text(version)}", install));
         items.Add(new("Open Curvy", p.OnOpen));
         items.Add(new("Exit", p.OnExit));
         return items;
