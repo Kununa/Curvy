@@ -167,6 +167,7 @@ public sealed class SettingsPage : Component<SettingsPageProps>
         // ── About ────────────────────────────────────────────────────────
         var aboutSection = Section("About",
             Body($"Curvy {Version}"),
+            UpdateRow(host, state.Update),
             Body("Headphone corrections from AutoEq by Jaakko Pasanen (MIT license)").TextWrapping(TextWrapping.Wrap),
             HyperlinkButton(AutoEqUrl, new Uri(AutoEqUrl)));
 
@@ -179,6 +180,30 @@ public sealed class SettingsPage : Component<SettingsPageProps>
                     autoEqSection,
                     aboutSection)
                 .Padding(24, 16, 24, 24));
+    }
+
+    /// <summary>The update check's state, with "Restart to update" or "Check for updates" next to it.</summary>
+    private static Element UpdateRow(EngineHost host, UpdateStatus? update)
+    {
+        var (text, button) = update switch
+        {
+            null or { Kind: UpdateKind.NotInstalled } => ("Updates are available in the installed app.", null),
+            { Kind: UpdateKind.Checking } => ("Checking for updates…", null),
+            { Kind: UpdateKind.Downloading, Version: var v } => ($"Downloading Curvy {v}…", null),
+            { Kind: UpdateKind.Ready, Version: var v } => ($"Curvy {v} is ready. Restart Curvy to finish updating.",
+                Button("Restart to update", () => Updater.ApplyAndRestart(host))),
+            { Kind: UpdateKind.Failed, Error: var error } => ($"Couldn't check for updates: {error}",
+                Button("Try again", () => Updater.Check(host))),
+            _ => ("Curvy is up to date.", (Element?)Button("Check for updates", () => Updater.Check(host))),
+        };
+        // Text wraps in the star column; the button stays on its right.
+        var caption = Caption(text).VAlign(VerticalAlignment.Center).TextWrapping(TextWrapping.Wrap)
+            .Grid(row: 0, column: 0);
+        return button is null
+            ? caption
+            : Grid([GridSize.Star(), GridSize.Auto], [GridSize.Auto],
+                caption,
+                button.Margin(12, 0, 0, 0).VAlign(VerticalAlignment.Center).Grid(row: 0, column: 1));
     }
 
     private static Element Section(string title, params Element?[] children)

@@ -84,7 +84,7 @@ namespace Curvy.App
             // Updates: one background check per start (installed copies only; see Updater).
             UseEffect(() =>
             {
-                Updater.CheckOnStartup(host);
+                Updater.Check(host);
                 return () => { };
             }, true);
 

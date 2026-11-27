@@ -44,7 +44,16 @@ public sealed record EngineState(
     IReadOnlyList<ConfigLine>? FirstRunLines,
     bool IncludeRemovedRepeatedly,
     long Version,
-    string? UpdateReady = null);
+    UpdateStatus? Update = null)
+{
+    /// <summary>The version of a downloaded update waiting for "Restart to update", else null.</summary>
+    public string? UpdateReady => Update is { Kind: UpdateKind.Ready, Version: var v } ? v : null;
+}
+
+public enum UpdateKind { NotInstalled, Checking, UpToDate, Downloading, Ready, Failed }
+
+/// <summary>Where the update check stands (see <see cref="Updater"/>); Version is the found update's.</summary>
+public sealed record UpdateStatus(UpdateKind Kind, string? Version = null, string? Error = null);
 
 /// <summary>
 /// Process-wide owner of the <see cref="CurvyEngine"/>. Everything runs on the UI thread
@@ -83,7 +92,7 @@ public sealed class EngineHost
     AutoEqCorrectionCache? _autoEqCorrections;
     string? _startupError;
     string? _uiError;
-    string? _updateReady;
+    UpdateStatus? _update;
 
     EngineHost()
     {
@@ -437,10 +446,10 @@ public sealed class EngineHost
         _configDebouncer?.Dispose();
     }
 
-    /// <summary>A downloaded update (its version) is ready: offered as "Restart to update".</summary>
-    public void SetUpdateReady(string version)
+    /// <summary>The update check moved on (checking, up to date, ready to restart…).</summary>
+    public void SetUpdateStatus(UpdateStatus status)
     {
-        _updateReady = version;
+        _update = status;
         Publish();
     }
 
@@ -488,9 +497,9 @@ public sealed class EngineHost
 
     EngineState Snapshot() => _engine is { } e
         ? new EngineState(true, true, TriedPath, e.Profiles, e.Settings, e.ActiveProfile, e.Current, e.LastError,
-            _startupError, _uiError, _reEnabled, _firstRunLines, _includeLoop, ++_version, _updateReady)
+            _startupError, _uiError, _reEnabled, _firstRunLines, _includeLoop, ++_version, _update)
         : new EngineState(ApoAvailable, false, TriedPath, [], CurvySettings.Default, null,
-            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, false, ++_version, _updateReady);
+            new ChainResult(true, 0, []), null, _startupError, _uiError, [], null, false, ++_version, _update);
 }
 
 /// <summary>The <c>UseEngine()</c> hook: current <see cref="EngineState"/>, re-rendering on every change.</summary>
