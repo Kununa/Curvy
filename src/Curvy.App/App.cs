@@ -19,11 +19,14 @@ Curvy.App.App.StartInTray = SingleInstance.IsTrayLaunch(Environment.GetCommandLi
 
 // Tray app: closing the window only hides it; the process lives until "Exit".
 ReactorApp.ShutdownPolicy = ShutdownPolicy.Explicit;
+// Sizes are DIPs (they scale with display scaling). 1120 x 820, but never larger than 95% of the
+// primary work area: at 150% a 1080p screen only has about 1280 x 690 DIPs.
+var (startWidth, startHeight) = Curvy.App.App.StartSize(1120, 820);
 ReactorApp.Run<Curvy.App.App>(new WindowSpec
 {
     Title = "Curvy",
-    Width = 1120,
-    Height = 820,
+    Width = startWidth,
+    Height = startHeight,
     MinWidth = 640,
     MinHeight = 480,
     Icon = WindowIcon.FromPath(Path.Combine(AppContext.BaseDirectory, "Assets", "curvy.ico")),
@@ -36,6 +39,20 @@ namespace Curvy.App
     {
         /// <summary>Set by the entry point before <c>Run</c>: start hidden in the tray.</summary>
         public static bool StartInTray { get; set; }
+
+        /// <summary>The wanted start size in DIPs, shrunk to fit the primary display's work area.</summary>
+        public static (double Width, double Height) StartSize(double width, double height)
+        {
+            try
+            {
+                var area = ReactorDisplay.Primary.WorkAreaDip;
+                return (Math.Min(width, Math.Floor(area.Width * 0.95)), Math.Min(height, Math.Floor(area.Height * 0.95)));
+            }
+            catch
+            {
+                return (width, height); // no display info: the plain size
+            }
+        }
 
         public override Element Render()
         {
