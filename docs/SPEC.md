@@ -37,6 +37,9 @@ the app shows exactly what it sends to Equalizer APO.
 - **Tray**: switch profiles, global EQ on/off, open the window; the app keeps running in the tray
   when the window is closed. Optional start with Windows, straight to the tray.
 - **Global on/off switch** in the window and the tray.
+- **Output device** on the profile page: shows and switches the Windows default playback device,
+  and warns (with a shortcut to Equalizer APO's Device Selector) when Equalizer APO isn't installed
+  on it. Switching uses the undocumented `IPolicyConfig` interface, as Windows' own settings do.
 - **AutoEQ search** on the profile page; results show measurement source and rig (rig data from the
   AutoEQ GitHub repo).
 - **Never destroy the user's Equalizer APO setup**: back up first, disable instead of delete,

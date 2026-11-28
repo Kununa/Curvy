@@ -209,8 +209,8 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
                 .ToArray()) with { Wrap = FlexWrap.Wrap, ColumnGap = 16, RowGap = 4 };
 
         // ── Header ───────────────────────────────────────────────────────
-        // Activate, then the picker (combo box + New) and the other profile actions on the left, the
-        // preamp quick switch on the right, above the graph.
+        // Activate, then the picker (combo box + New) and the other profile actions on the left, then
+        // the output device; the preamp quick switch on the right, above the graph.
         var header = (FlexRow(
                 IconButton(Symbol.Accept, props.IsActive ? "Active profile" : "Activate",
                         () => host.Now(e => e.Activate(draft.Current.Id)))
@@ -218,6 +218,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
                 props.Picker,
                 IconButton(Symbol.Copy, "Duplicate", Duplicate),
                 IconButton(Symbol.Delete, "Delete", () => setConfirmDelete(true)),
+                Component<OutputDevicePicker>().Margin(16, 0, 0, 0),
                 Component<PreampControl, PreampControlProps>(new PreampControlProps(props.Settings, props.Current))
                     .Flex(grow: 1)) with
             {
