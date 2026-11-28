@@ -16,7 +16,7 @@ public record AutoEqPickerProps(string PlaceholderText, Action<AutoEqCorrection>
 /// <summary>
 /// Inline AutoEQ search: type a headphone name, pick "Name · Source · Rig" from the suggestions,
 /// and the correction is fetched and handed to <see cref="AutoEqPickerProps.OnPicked"/>.
-/// Uses the same cached index and correction cache as the AutoEQ page.
+/// Uses the cached AutoEQ index and correction cache (refreshed from Settings).
 /// </summary>
 public sealed class AutoEqPicker : Component<AutoEqPickerProps>
 {

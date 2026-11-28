@@ -10,32 +10,26 @@ namespace Curvy.App.Components;
 
 public abstract record Route
 {
-    /// <summary>Profiles page, optionally with a profile selected (e.g. after AutoEQ created it).</summary>
+    /// <summary>Profiles page, optionally with a profile selected.</summary>
     public sealed record Profiles(Guid? Select = null) : Route;
     public sealed record Universal : Route;
-    /// <summary>
-    /// AutoEQ browser, optionally pre-filtered (e.g. "Change source" passes the headphone). With
-    /// <paramref name="ReplaceForProfileId"/> it swaps that profile's correction instead of creating one.
-    /// </summary>
-    public sealed record AutoEq(string? Query = null, Guid? ReplaceForProfileId = null) : Route;
     /// <summary>What Curvy currently writes to Equalizer APO (curvy.txt).</summary>
     public sealed record Output : Route;
     public sealed record Settings : Route;
 }
 
 /// <summary>
-/// Main window content: NavigationView (Profiles, Universal preference, AutoEQ, Output, Settings) with
+/// Main window content: NavigationView (Profiles, Universal preference, Output, Settings) with
 /// status InfoBars above the page. When Equalizer APO is unavailable a blocking InfoBar is shown
 /// and no page touches the engine.
 /// </summary>
 public sealed class Shell : EngineComponent
 {
-    const string ProfilesTag = "profiles", UniversalTag = "universal", AutoEqTag = "autoeq", OutputTag = "output";
+    const string ProfilesTag = "profiles", UniversalTag = "universal", OutputTag = "output";
 
     static string RouteToTag(Route r) => r switch
     {
         Route.Universal => UniversalTag,
-        Route.AutoEq => AutoEqTag,
         Route.Output => OutputTag,
         Route.Settings => NavigationViewElement.SettingsTag,
         _ => ProfilesTag,
@@ -44,7 +38,6 @@ public sealed class Shell : EngineComponent
     static Route TagToRoute(string? tag) => tag switch
     {
         UniversalTag => new Route.Universal(),
-        AutoEqTag => new Route.AutoEq(),
         OutputTag => new Route.Output(),
         NavigationViewElement.SettingsTag or null => new Route.Settings(),
         _ => new Route.Profiles(),
@@ -55,12 +48,6 @@ public sealed class Shell : EngineComponent
         var state = UseEngine();
         var nav = UseNavigation<Route>(new Route.Profiles());
         var host = EngineHost.Instance;
-
-        void OpenProfile(Guid id)
-        {
-            host.Flush();
-            nav.Navigate(new Route.Profiles(id));
-        }
 
         Element Page(Route route)
         {
@@ -73,10 +60,6 @@ public sealed class Shell : EngineComponent
             return route switch
             {
                 Route.Universal => Component<UniversalPage, UniversalPageProps>(new UniversalPageProps(state)),
-                // Keyed by the route so a different query / target remounts with fresh state.
-                Route.AutoEq a => Component<AutoEqPage, AutoEqPageProps>(
-                        new AutoEqPageProps(a.Query, a.ReplaceForProfileId, state, OpenProfile))
-                    .WithKey($"autoeq:{a.Query}:{a.ReplaceForProfileId}"),
                 Route.Output => Component<OutputPage, OutputPageProps>(new OutputPageProps(state)),
                 Route.Settings => Component<SettingsPage, SettingsPageProps>(new SettingsPageProps(state)),
                 Route.Profiles p => Component<ProfilesPage, ProfilesPageProps>(
@@ -174,7 +157,6 @@ public sealed class Shell : EngineComponent
             [
                 NavItem("Profiles", icon: "Audio", tag: ProfilesTag),
                 NavItem("Universal preference", icon: "Globe", tag: UniversalTag),
-                NavItem("AutoEQ", icon: "Find", tag: AutoEqTag),
                 NavItem("Output", icon: "Document", tag: OutputTag),
             ],
             content) with

@@ -8,9 +8,9 @@ dumbed down. Output only: no microphone features.
 
 - **Profiles** — one per headphone: an AutoEQ correction plus your own preference on top. Switch
   from the app or from the tray menu.
-- **AutoEQ search** — find your headphones by name, compare measurement sources and rigs on the
-  graph, and apply a correction in one click (also inline on the profile page). The index is cached,
-  so it works offline too.
+- **AutoEQ search** — on the profile page, find your headphones by name (measurement source and rig
+  shown per result) and apply the correction in one click. The index is cached, so it works offline
+  too.
 - **Preferences** — per profile, plus a universal one applied on top of every profile (a profile
   can ignore it). Each is either *Simple* (bass, treble, tilt) or *Parametric* (peak and shelf
   bands, draggable on the graph, optionally with the frequency locked). "Copy AutoEQ frequencies"

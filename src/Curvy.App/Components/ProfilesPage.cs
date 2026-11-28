@@ -74,7 +74,7 @@ public sealed class ProfilesPage : Component<ProfilesPageProps>
             return VStack(12,
                     picker,
                     Subtitle("No profiles yet"),
-                    Body("Create a blank profile, or pick your headphones on the AutoEQ page."))
+                    Body("Create a profile, then search for your headphones to add their AutoEQ correction."))
                 .Padding(16);
 
         return Component<ProfileEditor, ProfileEditorProps>(new ProfileEditorProps(
@@ -251,7 +251,7 @@ public sealed class ProfileEditor : Component<ProfileEditorProps>
             };
 
         // ── AutoEQ section ───────────────────────────────────────────────
-        // Search box applies a correction straight to this profile; the AutoEQ tab is for browsing.
+        // Search box applies a correction straight to this profile.
         var autoEqSearch = Component<AutoEqPicker, AutoEqPickerProps>(new AutoEqPickerProps(
             p.AutoEq is null ? "Search your headphones…" : "Search to replace…",
             c => Update(x => x with { AutoEq = c, AutoEqEnabled = true })));

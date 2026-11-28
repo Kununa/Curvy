@@ -256,6 +256,15 @@ public sealed class AutoEqIndexSettings : Component
 {
     private sealed record Note(InfoBarSeverity Severity, string Message);
 
+    /// <summary>
+    /// Shown when a forced refresh fell back to the cached index (the client serves the stale
+    /// cache instead of failing; detected by <see cref="AutoEqClient.IndexFetchedAt"/> not changing).
+    /// </summary>
+    private static string StaleRefreshMessage(DateTimeOffset? fetchedAt) => fetchedAt is { } at
+        ? $"Couldn't refresh; showing the index from {at.LocalDateTime:d}."
+        : "Couldn't refresh; showing the cached index.";
+
+
     public override Element Render()
     {
         var host = EngineHost.Instance;
@@ -295,7 +304,7 @@ public sealed class AutoEqIndexSettings : Component
                     setFetchedAt(after);
                     setBusy(false);
                     setNote(after == before
-                        ? new Note(InfoBarSeverity.Warning, AutoEqPage.StaleRefreshMessage(after))
+                        ? new Note(InfoBarSeverity.Warning, StaleRefreshMessage(after))
                         : new Note(InfoBarSeverity.Success, "The AutoEQ index is up to date."));
                 });
             }
